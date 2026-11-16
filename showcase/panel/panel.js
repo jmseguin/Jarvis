@@ -770,7 +770,7 @@
   function appsPage() {
     const ac = state.appControl ?? { confirmBeforeEnter: true, uiTrustLevel: 1, uiTrustLevels: [], approved: [], session: [] };
     const trustLevel = Number.isInteger(ac.uiTrustLevel) ? ac.uiTrustLevel : 1;
-    const levels = (ac.uiTrustLevels && ac.uiTrustLevels.length)
+    const baseLevels = (ac.uiTrustLevels && ac.uiTrustLevels.length)
       ? ac.uiTrustLevels
       : [
           { level: 0, label: 'Off', description: 'macOS UI Service is completely disabled.' },
@@ -779,6 +779,16 @@
           { level: 3, label: 'App-Scoped', description: 'Read freely; act in approved apps without re-asking (except blocked apps).' },
           { level: 4, label: 'Full Desktop', description: 'Act in any non-blocked app or desktop without per-action prompts.' },
         ];
+    // On Windows the same levels govern Windows-MCP, so say what they mean there (and drop the macOS-only parts).
+    const win = state.os === 'win';
+    const WIN_LEVELS = {
+      0: 'Controlling this PC is switched off.',
+      1: 'Look only: screenshots, windows and what is on screen. No clicking or typing.',
+      2: 'Looks freely; every click, keystroke or shortcut asks first.',
+      3: 'Acts in approved apps without asking; asks everywhere else.',
+      4: 'Acts anywhere, and may use PowerShell, files, the registry and processes. Each is still checked: PowerShell and deleting always ask, and risky things are refused.',
+    };
+    const levels = win ? baseLevels.map((l) => ({ ...l, desc: WIN_LEVELS[l.level] ?? l.desc, description: WIN_LEVELS[l.level] ?? l.description })) : baseLevels;
     const currentLevel = levels.find((l) => l.level === trustLevel) ?? levels[1];
     const all = [...(ac.approved ?? []), ...(ac.session ?? [])];
     const addInput = el('input', { type: 'text', placeholder: 'App name (e.g. Herdr, Cursor, Claude)', 'aria-label': 'Application name', 'data-k': 'app-add-input', autocomplete: 'off', spellcheck: false });
@@ -790,11 +800,12 @@
     };
     addInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submitAdd(); } });
     return [
-      group('macOS UI Trust Level', 'Controls how much Jarvis can inspect and interact with standard macOS UI elements.', null,
+      group(win ? 'Desktop Control Trust Level' : 'macOS UI Trust Level',
+        win ? 'Controls how much Jarvis can look at and do on this PC (clicking, typing, apps) through Windows-MCP. Needs uv installed.' : 'Controls how much Jarvis can inspect and interact with standard macOS UI elements.', null,
         el('div', { className: 'setting' },
           el('span', {}, `Level ${currentLevel.level}: ${currentLevel.label}`, el('small', { textContent: currentLevel.desc ?? currentLevel.description })),
-          btn('Accessibility Settings', () => act('ui_open_ax'), { k: 'ui-open-ax' })),
-        picks('macOS UI Trust Level', levels.map((l) => [l.level, `${l.level}: ${l.label}`]), trustLevel, (lvl) => act(`uitrust:${lvl}`), 'uitrust')),
+          win ? null : btn('Accessibility Settings', () => act('ui_open_ax'), { k: 'ui-open-ax' })),
+        picks(win ? 'Desktop Control Trust Level' : 'macOS UI Trust Level', levels.map((l) => [l.level, `${l.level}: ${l.label}`]), trustLevel, (lvl) => act(`uitrust:${lvl}`), 'uitrust')),
       group('App Control', 'Choose which apps and terminals can receive commands, and whether Enter asks first.', null,
         toggle('Confirm before pressing Enter', 'Ask before submitting commands or prompts in apps and terminals.', ac.confirmBeforeEnter !== false, () => act('confirm_enter'), 'confirm_enter'),
         el('div', { className: 'setting' },

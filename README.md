@@ -56,6 +56,16 @@ Gives Jarvis direct visibility and control over Herdr Core (`hc`) and Herdr TUI 
 - **Supported operations**: `list`, `get`, `read`, `send`, `wait`, `reply`, `spawn`, `close`, and raw TUI commands (empty `herdr({})` defaults to `list`).
 - **GUI `PATH` enrichment**: `tools/herdr.mjs` appends `~/.local/bin`, `~/.cargo/bin`, `/opt/homebrew/bin`, and `/usr/local/bin` when resolving `hc` and `herdr` so `AIAssistant.app` finds `/Users/<user>/.local/bin/hc` even when launched from Finder/Dock/Spotlight.
 
+### Windows-MCP (`tools/windows-mcp.mjs`)
+
+On Windows, Jarvis can look at and drive the desktop through [CursorTouch/Windows-MCP](https://github.com/CursorTouch/Windows-MCP) (MIT), the Windows twin of the macOS-MCP client. It is **not bundled with the installer**: install [uv](https://docs.astral.sh/uv/) once (`winget install astral-sh.uv`) and Jarvis runs the pinned release (`uvx windows-mcp@0.8.8 serve`, version in `tools/windows-mcp.mjs`) on first use. That first call downloads Python 3.14 and the packages, so it is slow and needs a network.
+
+- **Tools exposed** (`windows_mcp_*`): `snapshot`, `screenshot`, `displays`, `control_status`, `wait`, `wait_for`, `scrape`, `clipboard`, `click`, `type`, `scroll`, `move`, `shortcut`, `multi_select`, `multi_edit`, `app`, `notification`, plus `powershell`, `files`, `registry` and `process`.
+- **Trust level** (**Settings → Apps → Desktop Control Trust Level**, the same setting as macOS): *Observe* only looks; *Assisted* asks before every click or keystroke; *App-Scoped* acts in approved apps; *Full Desktop* acts anywhere. `powershell`, `files`, `registry` and `process` need **Full Desktop**.
+- **Safety** (`showcase/tauri/sidecar/safety.mjs`, `checkWindowsSystemAction`): at every level, PowerShell that downloads and runs code, hides itself (`-enc`, `iex`), changes security settings, adds startup entries or deletes whole folders is refused; keys and passwords are never read; the registry is only changed under `HKCU`, never startup or policy keys; Windows itself and Roamies cannot be closed; terminals, the registry editor, Task Manager, password managers and similar apps are never clicked or typed into (the same list as the `hands-win` helper). PowerShell and deleting always ask first. Every action is logged to `~/.gg/sidekick/logs/ui-actions.jsonl`.
+- **No telemetry**: Windows-MCP reports anonymous usage to PostHog by default. Jarvis always starts it with `ANONYMIZED_TELEMETRY=false`; this is not configurable.
+- Enable, disable or change the command in **Settings → MCP** (`windows-mcp`).
+
 ### MCP Settings Pane
 
 Open **Settings → MCP** in the panel to:

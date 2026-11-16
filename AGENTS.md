@@ -39,6 +39,11 @@ stopping the release; `latest.json` lists Linux only when its AppImage is there.
   (tested in `test/safety.test.mjs`); the hands helpers also refuse to type or click in the apps in `HANDS_OFF`
   (by bundle id in `hands/main.swift`, by program name in `hands-win/src/logic.rs`).
   Add a test case with every rule change.
+- `tools/windows-mcp.mjs` (CursorTouch Windows-MCP, run through the user's `uvx`, not bundled) is gated like the macOS tools
+  (`tools/macos-ui/service.mjs`, trust levels in `policy.mjs`). Its tools that reach past the screen (`powershell`,
+  `files`, `registry`, `process`) are `kind: 'system'`: Full Desktop only, and checked by `checkWindowsSystemAction` in
+  `safety.mjs`. It always runs with `ANONYMIZED_TELEMETRY=false`. macOS-only tests run only on macOS and Windows-only tests
+  run only on Windows (they are skipped everywhere else): `MAC_ONLY` / `WIN_ONLY` in `test/`.
 - In-app updates read `latest.json` from the newest published release, signed with the key in the
   `TAURI_SIGNING_PRIVATE_KEY` secret. Keep `plugins.updater.pubkey` in `tauri.conf.json` matching it.
   When GitHub's release links fail, the updater falls back to the copy on the `updates` branch, which

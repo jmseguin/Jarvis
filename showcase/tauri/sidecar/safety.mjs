@@ -508,6 +508,12 @@ export function checkDrawAction({ kind, url, text, action } = {}, { allowActions
 const HARD_BLOCKED_APP_NAMES = new Set([
   '1password', 'bitwarden', 'keychain access', 'passwords', 'system settings', 'system preferences',
   'installer', 'migration assistant', 'disk utility', 'script editor', 'automator',
+  // Windows, by program name or window name. Mirrors hands_off() in hands-win/src/logic.rs: typing into a shell runs
+  // commands past every check, and the rest hold passwords or security settings.
+  'cmd', 'command prompt', 'powershell', 'powershell_ise', 'pwsh', 'windowsterminal', 'windows terminal', 'openconsole',
+  'conhost', 'mintty', 'wsl', 'wslhost', 'wslg', 'putty', 'regedit', 'registry editor', 'mmc', 'management console',
+  'taskmgr', 'task manager', 'systemsettings', 'consent', 'user account control', 'credentialuibroker', 'windows security',
+  'keepass', 'keepassxc', 'devenv', 'visual studio',
 ]);
 const HARD_BLOCKED_BUNDLES = new Set([
   'com.1password.1password', 'com.agilebits.onepassword7', 'com.bitwarden.desktop',
@@ -538,7 +544,9 @@ export function normalizeAppKey(nameOrBundle) {
 export function isHardBlockedApp(appName, bundleId = '') {
   const n = String(appName ?? '').trim().toLowerCase();
   const b = String(bundleId ?? '').trim().toLowerCase();
-  return HARD_BLOCKED_APP_NAMES.has(n) || (!!b && HARD_BLOCKED_BUNDLES.has(b));
+  // Windows names a program by its file ("cmd.exe", or "cmd" from the hands helper): compare without the extension.
+  const bare = (s) => s.replace(/\.exe$/, '');
+  return HARD_BLOCKED_APP_NAMES.has(n) || HARD_BLOCKED_APP_NAMES.has(bare(n)) || (!!b && (HARD_BLOCKED_BUNDLES.has(b) || HARD_BLOCKED_APP_NAMES.has(bare(b))));
 }
 
 export function isTerminalApp(appName, bundleId = '') {
@@ -568,4 +576,131 @@ export function checkAppControl({ app = '', bundleId = '', steps = [] } = {}, { 
     return verdict(ASK, `Confirm before pressing Enter in ${label}.`);
   }
   return verdict(SAFE);
+}
+
+// ---------- Windows-MCP: the tools that reach past the screen (PowerShell, files, registry, processes) ----------
+
+const yes = (v) => v === true || /^true$/i.test(String(v ?? ''));
+const worst = (...vs) => vs.reduce((a, b) => ((b.level === BLOCK || (b.level === ASK && a.level === SAFE)) ? b : a), verdict(SAFE));
+
+// PowerShell that downloads and runs code, hides what it does, changes security settings, makes itself persistent,
+// wipes whole folders or disks, or touches accounts and credentials. Never, whatever the trust level.
+const PS_BLOCK = [
+  [/(^|\s)-e(nc(odedcommand)?)?\s+[A-Za-z0-9+/=]{8,}/i, 'an encoded PowerShell command hides what it does.'],
+  [/\b(iex|invoke-expression)\b/i, 'running text as code (Invoke-Expression) skips every check.'],
+  [/(downloadstring|downloadfile|downloaddata|net\.webclient|invoke-webrequest|invoke-restmethod|\biwr\b|\birm\b|start-bitstransfer|\bbitsadmin\b|certutil\b[^|;&]*-urlcache)/i, 'downloading from the web in a script skips every check. Use the web tools instead.'],
+  [/(set-executionpolicy|set-mppreference|add-mppreference|disable-windowsoptionalfeature|netsh\s+advfirewall|set-netfirewall\w*|new-netfirewallrule)/i, 'that changes Windows security settings.'],
+  [/(schtasks\b[^|;&]*\/create|register-scheduledtask|new-service\b|\bsc(\.exe)?\s+(create|config)\b|\bwmic\b|currentversion[\\/]run)/i, 'that sets something up to run on its own later.'],
+  [/(remove-item\b[^|;&]*-recurse|\b(rd|rmdir)\s+\/s|\bdel\s+\/[sfq]|format-volume|\bformat\s+[a-z]:|clear-disk|remove-partition|\bdiskpart\b|vssadmin[^|;&]*delete|\bbcdedit\b|cipher\s+\/w|wevtutil\s+cl\b|clear-eventlog)/i, 'that deletes whole folders or disks, or wipes logs and backups.'],
+  [/(\bnet\s+(user|localgroup)\b|new-localuser|set-localuser|add-localgroupmember)/i, 'that changes user accounts.'],
+  [/(\breg(\.exe)?\s+(add|delete|import)\b|mimikatz|sekurlsa|\blsass\b|\bcmdkey\b|\bvaultcmd\b|get-credential)/i, 'that edits the registry directly or reaches for stored credentials.'],
+];
+
+/** The PowerShell tool: anything on the block list is refused; the rest always asks (it runs with the user's rights). */
+export function classifyPowerShell(script) {
+  const s = String(script ?? '').trim();
+  if (!s) return verdict(BLOCK, 'That PowerShell command is empty.');
+  for (const [re, why] of PS_BLOCK) if (re.test(s)) return verdict(BLOCK, `I won't run that: ${why}`);
+  if (SECRET.some((re) => re.test(slash(s)))) return verdict(BLOCK, 'That PowerShell command touches passwords or keys, so I never run it.');
+  return verdict(ASK, 'PowerShell runs with your full Windows permissions.');
+}
+
+const REG_HIVES = { hkey_current_user: 'hkcu', hkey_local_machine: 'hklm', hkey_classes_root: 'hkcr', hkey_users: 'hku', hkey_current_config: 'hkcc' };
+/** "HKCU:\Software\X", "HKEY_CURRENT_USER\Software\X" -> { hive: 'hkcu', sub: 'software\x' } (lower case). */
+function regParts(p) {
+  const s = String(p ?? '').trim().replace(/\//g, '\\').replace(/^registry::/i, '').replace(/^([a-z_]+):?(?=\\|$)/i, (_, h) => `${REG_HIVES[h.toLowerCase()] ?? h.toLowerCase()}`);
+  const i = s.indexOf('\\');
+  return { hive: (i < 0 ? s : s.slice(0, i)).toLowerCase(), sub: (i < 0 ? '' : s.slice(i + 1)).toLowerCase().replace(/^\\+|\\+$/g, '') };
+}
+// Keys that make something run at sign-in or hijack what a file or command runs, or change policy.
+const REG_PERSIST = [
+  /^software\\(wow6432node\\)?microsoft\\windows\\currentversion\\(run|runonce|runservices|policies)(\\|$)/,
+  /^software\\(wow6432node\\)?microsoft\\windows\\currentversion\\explorer\\(user )?shell folders(\\|$)/,
+  /^software\\(wow6432node\\)?microsoft\\windows nt\\currentversion\\(winlogon|image file execution options|windows)(\\|$)/,
+  /^software\\policies(\\|$)/,
+  /^software\\classes\\.*\\(shell|command)(\\|$)/,
+  /^environment$/,
+];
+
+/** The Registry tool: reading is fine except the password hives; writes ask, and anything that persists is refused. */
+export function checkRegistry({ mode, path: p } = {}) {
+  const { hive, sub } = regParts(p);
+  if (!hive || !/^hk(cu|lm|cr|u|cc)$/.test(hive)) return verdict(BLOCK, `"${p}" isn't a registry path I can use (start with HKCU or HKLM).`);
+  const m = String(mode ?? '').toLowerCase();
+  if (m === 'get' || m === 'list') {
+    if (hive === 'hklm' && /^(sam|security)(\\|$)/.test(sub)) return verdict(BLOCK, 'That registry area holds account passwords, so I never read it.');
+    return verdict(SAFE);
+  }
+  if (m === 'set' || m === 'delete') {
+    if (hive !== 'hkcu') return verdict(BLOCK, 'I only change registry values under HKCU (your own settings), not HKLM or other areas.');
+    if (REG_PERSIST.some((re) => re.test(sub))) return verdict(BLOCK, 'That registry key controls startup, policies or what files run, so I won\'t change it.');
+    return verdict(ASK, `${m === 'delete' ? 'Delete' : 'Change'} ${p} in the registry?`);
+  }
+  return verdict(BLOCK, `Registry mode "${mode}" isn't one I know.`);
+}
+
+// Programs whose death breaks Windows, the desktop, security software, or Roamies itself.
+const PROTECTED_PROCESSES = new Set([
+  'system', 'registry', 'smss', 'csrss', 'wininit', 'winlogon', 'services', 'lsass', 'lsaiso', 'svchost', 'dwm', 'fontdrvhost',
+  'explorer', 'sihost', 'ctfmon', 'wmiprvse', 'spoolsv', 'msmpeng', 'securityhealthservice', 'node', 'roamies',
+  'ai_assistant', 'aiassistant', 'ai_assistant-voice', 'ai_assistant-hands',
+]);
+
+/** The Process tool: listing is fine; killing asks, and never touches Windows or Roamies itself. */
+export function checkProcess({ mode, name, pid } = {}) {
+  const m = String(mode ?? '').toLowerCase();
+  if (m === 'list') return verdict(SAFE);
+  if (m !== 'kill') return verdict(BLOCK, `Process mode "${mode}" isn't one I know.`);
+  const n = String(name ?? '').trim().toLowerCase().replace(/\.exe$/, '');
+  const id = pid == null || pid === '' ? null : Number(pid);
+  if (!n && id == null) return verdict(BLOCK, 'Say which process to close (a name or a process id).');
+  if (id != null && (!Number.isInteger(id) || id <= 4)) return verdict(BLOCK, 'That process id belongs to Windows itself.');
+  if (n && PROTECTED_PROCESSES.has(n)) return verdict(BLOCK, `${name} is part of Windows or Roamies, so I won't close it.`);
+  return verdict(ASK, `Close ${n || `process ${id}`}?`);
+}
+
+/** The FileSystem tool, by mode. A relative path means the Desktop, which is what Windows-MCP does. */
+export function checkWindowsFiles(args = {}, home, { exists = true } = {}) {
+  home = slash(home);
+  const mode = String(args.mode ?? '').toLowerCase();
+  const at = (p) => { const s = slash(p ?? ''); return /^~/.test(s) || isAbs(s) ? s : `${home}/Desktop/${s}`; };
+  const rd = (p, recursive = false) => { const v = checkRead(at(p), home, { recursive }); return verdict(v.level, v.reason); };
+  const wr = (p) => { const v = checkWrite(at(p), home, { exists }); return verdict(v.level, v.reason); };
+  if (!args.path) return verdict(BLOCK, 'No path given.');
+  switch (mode) {
+    case 'read': case 'info': return rd(args.path);
+    case 'list': case 'search': return rd(args.path, yes(args.recursive) || mode === 'search');
+    case 'write': return wr(args.path);
+    case 'delete': {
+      const broad = rd(args.path, true), w = wr(args.path);
+      const base = worst(broad, w);
+      return base.level === BLOCK ? base : verdict(ASK, `Delete ${args.path}${yes(args.recursive) ? ' and everything in it' : ''}?`);
+    }
+    case 'copy': case 'move': {
+      if (!args.destination) return verdict(BLOCK, `Say where to ${mode} it.`);
+      const base = worst(rd(args.path), wr(args.destination), mode === 'move' ? wr(args.path) : verdict(SAFE));
+      return base.level === BLOCK ? base : verdict(ASK, `${mode === 'move' ? 'Move' : 'Copy'} ${args.path} to ${args.destination}?`);
+    }
+    default: return verdict(BLOCK, `File mode "${args.mode}" isn't one I know.`);
+  }
+}
+
+/** Gate a Windows-MCP tool that reaches past the screen. `tool` is the server's name for it (PowerShell, FileSystem,
+ *  Registry, Process, App, Scrape); the rest only point and click and are handled by the UI trust level. */
+export function checkWindowsSystemAction({ tool, args = {} } = {}, home, opts = {}) {
+  switch (tool) {
+    case 'PowerShell': return classifyPowerShell(args.command);
+    case 'FileSystem': return checkWindowsFiles(args, home, opts);
+    case 'Registry': return checkRegistry(args);
+    case 'Process': return checkProcess(args);
+    case 'Scrape': return checkUrl(args.url);
+    case 'App': {
+      if (String(args.mode ?? '').toLowerCase() === 'launch_executable') {
+        return verdict(BLOCK, 'I don\'t launch programs by file path (that runs code). Launch apps by name instead.');
+      }
+      if (args.name && isHardBlockedApp(args.name)) return verdict(BLOCK, `${args.name} is protected and cannot be controlled.`);
+      return verdict(SAFE);
+    }
+    default: return verdict(SAFE);
+  }
 }

@@ -13,6 +13,9 @@ import { createMacosUiService } from '../../../../tools/macos-ui/service.mjs';
 import { MACOS_UI_MCP_CLIENT, createMacosUiTools } from '../../../../tools/macos-ui/index.mjs';
 import { z } from 'zod';
 
+// These drive the macOS helper through the macOS-only service: they only make sense on a Mac.
+const MAC_ONLY = { skip: process.platform !== 'darwin' && 'macOS only' };
+
 test('default trust level is 1 (Observe) and normalization clamps invalid values', () => {
   assert.equal(DEFAULT_UI_TRUST_LEVEL, 1);
   assert.equal(UI_TRUST_LEVELS[1].label, 'Observe');
@@ -75,7 +78,7 @@ test('Level 4 (Full Desktop) allows unapproved non-blocked apps but still enforc
   );
 });
 
-test('createMacosUiService gates calls, prompts on ask, and approves app when chosen', async () => {
+test('createMacosUiService gates calls, prompts on ask, and approves app when chosen', MAC_ONLY, async () => {
   let level = 1;
   const approved = {};
   const prompts = [];
@@ -126,7 +129,7 @@ test('createMacosUiService gates calls, prompts on ask, and approves app when ch
   assert.equal(fs.existsSync(logFile), true);
 });
 
-test('BDD tools (ui_find, ui_hover, ui_bdd_run) are registered and execute multi-step traces', async () => {
+test('BDD tools (ui_find, ui_hover, ui_bdd_run) are registered and execute multi-step traces', MAC_ONLY, async () => {
   assert.ok(MACOS_UI_MCP_CLIENT.tools.includes('ui_find'));
   assert.ok(MACOS_UI_MCP_CLIENT.tools.includes('ui_hover'));
   assert.ok(MACOS_UI_MCP_CLIENT.tools.includes('ui_bdd_run'));

@@ -23,16 +23,19 @@ export function trustLevelInfo(v) {
 }
 
 /**
- * Evaluates whether a macOS UI action is allowed, needs confirmation, or is blocked.
- * @param {{ action: string, kind: 'read'|'mutate', targetApp?: string, bundleId?: string, hasEnter?: boolean }} req
- * @param {{ trustLevel?: number, enabled?: boolean, approvedApps?: object, sessionApps?: object, confirmBeforeEnter?: boolean }} ctx
+ * Evaluates whether a UI action is allowed, needs confirmation, or is blocked.
+ * `kind: 'system'` is a call that reaches past the screen (PowerShell, files, registry, processes): it needs Full
+ * Desktop trust, and then follows `req.safety`, the safety.mjs verdict ({ level: 'safe'|'ask'|'block', reason }).
+ * @param {{ action: string, kind: 'read'|'mutate'|'system', targetApp?: string, bundleId?: string, hasEnter?: boolean, safety?: { level: string, reason?: string } }} req
+ * @param {{ trustLevel?: number, enabled?: boolean, label?: string, approvedApps?: object, sessionApps?: object, confirmBeforeEnter?: boolean }} ctx
  * @returns {{ decision: 'allow'|'ask'|'block', reason: string }}
  */
 export function evaluateUiAction(req, ctx = {}) {
   const enabled = ctx.enabled !== false;
   const level = normalizeTrustLevel(ctx.trustLevel);
+  const label = ctx.label || 'macOS UI Service';
   if (!enabled || level === 0) {
-    return { decision: 'block', reason: 'macOS UI Service is disabled (Trust Level: Off).' };
+    return { decision: 'block', reason: `${label} is disabled (Trust Level: Off).` };
   }
 
   const app = String(req?.targetApp ?? '').trim();
@@ -40,6 +43,17 @@ export function evaluateUiAction(req, ctx = {}) {
 
   if (req?.kind === 'read') {
     return { decision: 'allow', reason: 'Read-only UI observation is allowed.' };
+  }
+
+  if (req?.kind === 'system') {
+    const sv = req.safety;
+    // A refusal from safety.mjs stands at every level; no verdict at all means the caller forgot to check: ask.
+    if (sv?.level === 'block') return { decision: 'block', reason: sv.reason || 'Blocked by the safety rules.' };
+    if (level < 4) {
+      return { decision: 'block', reason: `${req.action} reaches beyond the screen, so it needs Full Desktop trust (now: ${trustLevelInfo(level).label}).` };
+    }
+    if (sv?.level === 'safe') return { decision: 'allow', reason: 'Allowed under Full Desktop trust.' };
+    return { decision: 'ask', reason: sv?.reason || `Confirm ${req.action}.` };
   }
 
   if (app && isHardBlockedApp(app, bundleId)) {

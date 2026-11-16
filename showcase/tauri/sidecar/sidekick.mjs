@@ -583,6 +583,27 @@ function anim(name, args = {}) {
     case 'macos_mcp_desktop':
     case 'macos_mcp_notification':
     case 'macos_mcp_shell': return { tool: 'write', variant: 'edit', label: 'driving', detail: 'macOS-MCP' };
+    case 'windows_mcp_snapshot':
+    case 'windows_mcp_screenshot':
+    case 'windows_mcp_displays':
+    case 'windows_mcp_control_status':
+    case 'windows_mcp_wait':
+    case 'windows_mcp_wait_for':
+    case 'windows_mcp_scrape': return { tool: 'read', variant: 'search', label: 'inspecting', detail: 'Windows-MCP' };
+    case 'windows_mcp_clipboard': return { tool: args.mode === 'get' ? 'read' : 'write', variant: 'edit', label: args.mode === 'get' ? 'reading' : 'setting', detail: 'the clipboard' };
+    case 'windows_mcp_app':
+    case 'windows_mcp_click':
+    case 'windows_mcp_type':
+    case 'windows_mcp_scroll':
+    case 'windows_mcp_move':
+    case 'windows_mcp_shortcut':
+    case 'windows_mcp_multi_select':
+    case 'windows_mcp_multi_edit':
+    case 'windows_mcp_notification': return { tool: 'write', variant: 'edit', label: 'driving', detail: 'Windows-MCP' };
+    case 'windows_mcp_powershell': return { tool: 'run', variant: 'progress', label: 'running', detail: String(args.command ?? '').slice(0, 40) };
+    case 'windows_mcp_files': return { tool: args.mode === 'read' || args.mode === 'list' || args.mode === 'search' || args.mode === 'info' ? 'read' : 'write', variant: 'file', label: String(args.mode ?? 'working with'), detail: base(args.path ?? '') };
+    case 'windows_mcp_registry':
+    case 'windows_mcp_process': return { tool: 'run', variant: 'progress', label: 'checking', detail: 'Windows' };
     case 'draw': return null; // the drawing is its own thing, not a tool prop
     case 'plan_steps': return null; // drawn as the step trail, not a tool prop
     case 'see_photo': return { tool: 'look', variant: 'window', label: 'looking at', detail: args.url ? host(args.url) : 'a picture' };
@@ -616,7 +637,7 @@ function anim(name, args = {}) {
 // system prompt would re-bill the whole conversation every time memory changed; at the end, only the new message
 // is fresh. The live block is never saved.
 // Tools that take long enough to need a spoken beat first.
-const SLOW_TOOLS = new Set(['web_search', 'web_fetch', 'see_photo', 'take_screenshot', 'read_window', 'act_in_app', 'run_command', 'search_files', 'list_windows', 'ui_desktop_info', 'ui_list_windows', 'ui_read_app', 'ui_ax_tree', 'ui_find', 'ui_hover', 'ui_menu_list', 'ui_menu_click', 'ui_click', 'ui_type', 'ui_hotkey', 'ui_drag', 'ui_scroll', 'ui_bdd_run', 'herdr_session_snapshot', 'herdr_tab_list', 'herdr_workspace_list', 'herdr_pane_list', 'herdr_agent_read', 'herdr_agent_prompt', 'herdr_agent_wait', 'herdr_pane_wait_for_output']);
+const SLOW_TOOLS = new Set(['web_search', 'web_fetch', 'see_photo', 'take_screenshot', 'read_window', 'act_in_app', 'run_command', 'search_files', 'list_windows', 'ui_desktop_info', 'ui_list_windows', 'ui_read_app', 'ui_ax_tree', 'ui_find', 'ui_hover', 'ui_menu_list', 'ui_menu_click', 'ui_click', 'ui_type', 'ui_hotkey', 'ui_drag', 'ui_scroll', 'ui_bdd_run', 'windows_mcp_snapshot', 'windows_mcp_screenshot', 'windows_mcp_scrape', 'windows_mcp_wait_for', 'windows_mcp_app', 'windows_mcp_click', 'windows_mcp_type', 'windows_mcp_powershell', 'windows_mcp_files', 'herdr_session_snapshot', 'herdr_tab_list', 'herdr_workspace_list', 'herdr_pane_list', 'herdr_agent_read', 'herdr_agent_prompt', 'herdr_agent_wait', 'herdr_pane_wait_for_output']);
 // How replies are written: for bubbles (text only), or for the ear (spoken with Fish Audio or Gemini, details on screen).
 const VOICE_ON = () => config.replies === 'voice' && speech.on;
 // VoiceStudio's engines would read voice cues out, so its prompt has no cue paragraph (and any cue left is removed).
@@ -666,7 +687,8 @@ const livePrompt = (context = '') => {
 ${frontNow ? `${frontNow}\n` : ''}${focusLine()}- Editing files, running commands and controlling other apps: ${config.allowActions ? 'ALLOWED' : `switched OFF (tell the user to turn on "Allow File Edits & Commands" on the Behavior page in ${PANEL} if they want it)`}.
 - Enabled MCP servers: ${activeMcp.length ? activeMcp.map((c) => `${c.name} (tools: ${c.tools.length ? c.tools.join(', ') : 'configured'})`).join('; ') : 'none'}.
 - macOS UI Service trust level: Level ${jarvisTools.service.getTrustLevelInfo().level} (${jarvisTools.service.getTrustLevelInfo().label}) — ${jarvisTools.service.getTrustLevelInfo().desc} (governed independently of "Allow File Edits & Commands"; configured in ${PANEL} -> Apps & Control).
-- Physical UI & Media Control: You HAVE real mouse/keyboard/UI control via ui_bdd_run, ui_hotkey (supports "k", "space", "playpause", "cmd+w", etc.), ui_click, ui_find, ui_hover, and the CursorTouch macos_mcp_* tools (macos_mcp_snapshot, macos_mcp_app, macos_mcp_click, macos_mcp_type, macos_mcp_shortcut, macos_mcp_scroll). When asked to pause/play YouTube/video or click/type in an app, ALWAYS call a ui_* or macos_mcp_* tool immediately; NEVER claim you cannot interact with media or apps.
+- Physical UI & Media Control: You HAVE real mouse/keyboard/UI control via ui_bdd_run, ui_hotkey (supports "k", "space", "playpause", "cmd+w", etc.), ui_click, ui_find, ui_hover, and the CursorTouch macos_mcp_* tools (macos_mcp_snapshot, macos_mcp_app, macos_mcp_click, macos_mcp_type, macos_mcp_shortcut, macos_mcp_scroll). When asked to pause/play YouTube/video or click/type in an app, ALWAYS call a ui_* or macos_mcp_* tool immediately; NEVER claim you cannot interact with media or apps.${process.platform === 'win32' ? `
+- Windows desktop control: on this PC the CursorTouch windows_mcp_* tools do the looking and the driving (windows_mcp_snapshot, then windows_mcp_click, windows_mcp_type, windows_mcp_shortcut, windows_mcp_app, windows_mcp_scroll). Look first (snapshot gives element label ids and coordinates), then act. They follow the UI trust level in ${PANEL} -> Apps & Control: Observe Only means looking only. windows_mcp_powershell, windows_mcp_files, windows_mcp_registry and windows_mcp_process need Full Desktop trust, and PowerShell and deletes always ask first. If a call comes back blocked, say why in one sentence and do not try to get around it. The ui_* and macos_mcp_* tools are macOS-only.` : ''}
 ${config.followUpQuestions === false ? '- Reply ending: Answer directly and end with a period. NEVER ask follow-up offers ("Is there anything else...", "Would you like...", "Can I assist...", "Is there a specific...") unless you are genuinely blocked and cannot proceed without an answer.\n' : ''}
 ${VOICE_OK ? `- Voice: ${!config.voice ? 'off' : voiceReady() ? `on; ${HOTKEYS_OK ? `${userName} holds ${talkWords()} to talk` : `${userName} presses the key they bound to ${BIND.talk} to start talking and again to send (a pause sends too)`}${config.autoListen ? '. Auto-listen is on: when your reply to a spoken question ends with a question, the mic opens by itself for their answer' : ''}${MAC && config.wakeWord ? `. Wake word is on: ${userName} can also say "Hey ${wakeName(config)}" to start talking hands-free, and what they say right after it is the request${config.wakeName ? ` (they chose "${config.wakeName}" as the wake word; your own name is unchanged)` : ''}` : ''}` : `on, but the speech model isn't downloaded yet (${voiceModel.status === 'downloading' ? 'downloading now' : `the Voice page in ${PANEL}`})`}.` : ''}
 - Shortcuts: ${HOTKEYS_OK ? `type a question to you: a quick tap of ${writeWords()} (press both and let go), which opens a text field beside the cursor (Enter sends, Shift+Enter adds a line, Esc or another tap closes it); show or hide you ${keyWords(keys().summon)}` : `on this Wayland desktop no app can have global shortcuts, so ${userName} binds keys to these commands in their desktop's keyboard settings: ${BIND.summon} (show or hide you), ${BIND.ask} (ask you), ${BIND.list} (the list), ${BIND.talk} (talk) and ${BIND.panel} (the panel)`}${SNAP_OK ? `; ask about an area ${keyWords(keys().snap)}` : ''}${CIRCLE_OK ? "; while holding the talk keys, moving the cursor round something circles it (no clicking; it snaps shut with a click when the circle closes, and loose lines don't count) and you'll see what they circled" : ''}${HOTKEYS_OK ? `; show the list ${keyWords(keys().list)}` : ''}.${HANDS_OK ? '' : ' Asking about an area, reading app windows, finding things on screen by their words and working other apps need the Roamies app, which isn\'t running here; draw there with x, y from a screenshot.'}`;
