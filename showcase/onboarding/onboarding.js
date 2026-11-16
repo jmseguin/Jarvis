@@ -395,6 +395,7 @@
       cb.onclick = () => ai.pickCustom();
       $('key-providers').append(cb);
       $('custom-form').hidden = ai.mode !== 'key' || ai.key !== 'custom';
+      if (!$('custom-form').hidden && !ai.customFilled && !cbusy) { ai.fillCustom(); ai.customFilled = true; }
       $('custom-save').disabled = cbusy;
       const k = (state?.apikey ?? []).find((p) => p.id === ai.key);
       $('key-form').hidden = ai.mode !== 'key' || !k;
@@ -442,12 +443,20 @@
       ai.key = p.id; $('login-error').hidden = true; ai.render();
       $('key-input').focus();
     },
+    // The custom provider's boxes: what was typed and not saved, else what is saved, with the saved key as its first
+    // three characters and then * (touch the box to type a new key; empty puts the mask back and keeps the saved key).
+    fillCustom() {
+      const c = state?.custom ?? {}, d = c.draft;
+      const v = d ?? { name: c.name, address: c.address, model: c.model, key: c.keyMask ?? '', keepKey: !!c.keyMask };
+      $('custom-name').value = v.name ?? ''; $('custom-address').value = v.address ?? ''; $('custom-model').value = v.model ?? '';
+      ai.keyMask = c.keyMask ?? '';
+      if (v.keepKey && ai.keyMask) ai.showMask(); else ai.showEntry(v.keepKey ? '' : (v.key ?? ''));
+    },
+    showMask() { const i = $('custom-key'); i.type = 'text'; i.value = ai.keyMask; i.placeholder = ''; ai.keepKey = true; },
+    showEntry(value = '') { const i = $('custom-key'); i.type = 'password'; i.value = value; i.placeholder = ai.keyMask ? 'Paste the new API key, or leave empty to keep the saved one' : 'Paste API key'; ai.keepKey = false; },
     pickCustom() {
       ai.key = 'custom'; $('login-error').hidden = true;
-      // Already set up: show what was saved (the key itself is never sent back; empty keeps it).
-      const c = state?.custom ?? {};
-      for (const [id, v] of [['custom-name', c.name], ['custom-address', c.address], ['custom-model', c.model]]) if (!$(id).value) $(id).value = v ?? '';
-      $('custom-key').placeholder = c.on ? 'Leave empty to keep the saved key' : 'Paste API key';
+      if (!ai.customFilled) { ai.fillCustom(); ai.customFilled = true; }
       ai.render();
       ($('custom-address').value ? $('custom-key') : $('custom-address')).focus();
     },
@@ -457,6 +466,7 @@
       if (msg.phase === 'browser') return;
       if (msg.phase === 'status') { ai.status = String(msg.text ?? ''); ai.arm(); ai.render(); return; }
       clearTimeout(ai.timer);
+      if (msg.provider === 'custom') ai.customFilled = false;
       ai.busy = null; ai.loginId = null; ai.status = ''; ai.keyBusy = null; poseFn = null;
       if (msg.phase === 'done') { act('hype'); quip('Ooh, a brain!'); $('code-form').hidden = true; }
       else { showError('login-error', msg.error || "That didn't work. Try again.", msg.copy); quip('Hmm. Try again?'); }
@@ -502,15 +512,26 @@
     send({ type: 'ob_apikey', provider: ai.key, key });
     $('key-input').value = '';
   });
+  // What's typed is sent to the app a moment after typing stops, so leaving the guide and coming back loses nothing.
+  let customTimer = null;
+  const mirrorCustom = () => {
+    clearTimeout(customTimer);
+    customTimer = setTimeout(() => send({ type: 'ob_custom_draft', name: $('custom-name').value, address: $('custom-address').value, model: $('custom-model').value, key: ai.keepKey ? '' : $('custom-key').value, keepKey: ai.keepKey }), 300);
+  };
+  for (const id of ['custom-name', 'custom-address', 'custom-model']) $(id).addEventListener('input', () => { $('login-error').hidden = true; mirrorCustom(); });
+  $('custom-key').addEventListener('input', () => { ai.keepKey = false; $('login-error').hidden = true; mirrorCustom(); });
+  $('custom-key').addEventListener('focus', () => { if (ai.keepKey) ai.showEntry(''); });
+  $('custom-key').addEventListener('blur', () => { if (!$('custom-key').value && ai.keyMask) ai.showMask(); });
   $('custom-form').addEventListener('submit', (e) => {
     e.preventDefault();
     const v = (id) => $(id).value.trim();
-    if (!v('custom-address')) return $('custom-address').focus();
-    if (!v('custom-model')) return $('custom-model').focus();
+    if (!v('custom-address')) { showError('login-error', 'Type the address of your AI server.'); return $('custom-address').focus(); }
+    if (!v('custom-model')) { showError('login-error', 'Type the model name your server expects.'); return $('custom-model').focus(); }
+    clearTimeout(customTimer);
+    $('login-error').hidden = true;
     ai.keyBusy = 'custom'; ai.render();
     poseFn = POSE.think();
-    send({ type: 'ob_custom', name: v('custom-name'), address: v('custom-address'), key: v('custom-key'), model: v('custom-model') });
-    $('custom-key').value = '';
+    send({ type: 'ob_custom', name: v('custom-name'), address: v('custom-address'), key: ai.keepKey ? '' : v('custom-key'), keepKey: ai.keepKey, model: v('custom-model') });
   });
 
   // ---------------------------------------------------------------- step 3: how replies come
@@ -1363,7 +1384,7 @@
       apikey: [['anthropic', 'Anthropic'], ['openai', 'OpenAI'], ['gemini', 'Gemini'], ['xai', 'xAI'], ['kimi-code', 'Kimi Code'], ['moonshot', 'Moonshot'], ['glm', 'Z.AI'], ['minimax', 'MiniMax'],
         ['xiaomi', 'MiMo Plan'], ['xiaomi-credits', 'MiMo Credits'], ['deepseek', 'DeepSeek'], ['sakana', 'Sakana'], ['openrouter', 'OpenRouter'], ['huggingface', 'Hugging Face']]
         .map(([id, name]) => ({ id, name, connected: id === 'openrouter' && q.get('keys') === '1', link: id === 'xiaomi' ? null : `https://example.com/${id}` })),
-      custom: { on: false, name: '', address: '', model: '' },
+      custom: { on: false, saved: false, ok: null, why: '', name: '', address: '', model: '', keyMask: '', draft: null, testing: false, formError: '' },
     };
     let filesAsked = st.filesAsked;
     const logins = new Map(); // sign-in id → its timers, so Cancel stops the simulated one
@@ -1405,12 +1426,18 @@
           st.apikey.find((p) => p.id === m.provider).connected = true; st.connected = { provider: m.provider, model: 'A model' };
           window.__onboard?.({ kind: 'login', provider: m.provider, phase: 'done' }); window.__onboard?.({ ...st });
         }, 900);
+      } else if (m.type === 'ob_custom_draft') {
+        st.custom = { ...st.custom, draft: { name: m.name, address: m.address, model: m.model, key: m.key, keepKey: m.keepKey } };
       } else if (m.type === 'ob_custom') {
-        // An address with 'bad' in it is refused, like a wrong key or server.
+        // An address with 'bad' in it fails its test, like a server that refuses the key. Either way the settings are kept.
+        const mask = (k) => (k ? (k.length > 6 ? k.slice(0, 3) + '*'.repeat(k.length - 3) : '*'.repeat(k.length)) : '');
         setTimeout(() => {
-          if (/bad/i.test(m.address)) return window.__onboard?.({ kind: 'login', provider: 'custom', phase: 'error', error: 'The server refused the API key. Check the key and try again.' });
-          st.custom = { on: true, name: m.name || 'My AI', address: m.address, model: m.model }; st.connected = { provider: st.custom.name, model: m.model };
-          window.__onboard?.({ kind: 'login', provider: 'custom', phase: 'done' }); window.__onboard?.({ ...st });
+          const ok = !/bad/i.test(m.address), why = ok ? '' : 'The server refused the API key. Check the key and try again.';
+          const keyMask = m.keepKey ? st.custom.keyMask : mask(m.key);
+          st.custom = { on: ok, saved: true, ok, why, name: m.name || 'My AI', address: m.address, model: m.model, keyMask, draft: null, testing: false, formError: '' };
+          if (ok) st.connected = { provider: st.custom.name, model: m.model };
+          window.__onboard?.({ ...st });
+          window.__onboard?.(ok ? { kind: 'login', provider: 'custom', phase: 'done' } : { kind: 'login', provider: 'custom', phase: 'error', error: 'Saved, but the test failed: ' + why });
         }, 900);
       } else if (m.type === 'ob_replies') { st.replies = m.mode; reply({ ...st }); reply({ kind: 'say', text: m.mode === 'voice' ? 'Voice is on!' : 'Text only from now on.' }, 50); }
       else if (m.type === 'ob_fishkey' || m.type === 'ob_geminikey') {

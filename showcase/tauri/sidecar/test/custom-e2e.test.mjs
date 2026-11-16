@@ -9,7 +9,7 @@ import path from 'node:path';
 import { Agent } from '@kenkaiiii/gg-agent';
 import { AuthStorage, clearRuntimeModels, getAuthStorageKeys, registerRuntimeModels } from '@kenkaiiii/gg-core';
 import { agentEvents } from '../agentstream.mjs';
-import { CUSTOM_ID, CUSTOM_KEY, cleanCustom, customModelInfo, testCustom } from '../custom.mjs';
+import { CUSTOM_ID, CUSTOM_KEY, cleanCustom, customModelInfo, maskKey, saveCustom, testCustom } from '../custom.mjs';
 
 const KEY = 'sk-test-12345';
 const seen = [];
@@ -86,6 +86,26 @@ try {
   const bare = await auth.resolveCredentials('local', { storageKeys: [CUSTOM_KEY] });
   assert.equal(bare.accessToken, 'local', "gg-core's marker for 'no key'");
   assert.equal(bare.baseUrl, `${origin}/v1`);
+
+  // The form's Save, against the real server: the settings are kept even when the test fails, then a key box left as
+  // shown (masked) keeps the saved key.
+  const store2 = new AuthStorage(path.join(dir, 'auth-form.json'));
+  const form = { name: 'House', address: origin, model: 'house-model' };
+  let s = await retry(() => saveCustom(store2, { ...form, key: 'wrong-key' }));
+  assert.deepEqual([s.ok, s.saved], [false, true]);
+  assert.match(s.why, /refused the API key/);
+  assert.equal(await store2.hasCredentials(CUSTOM_KEY), true, 'saved although the test failed');
+  s = await retry(() => saveCustom(store2, { ...form, key: KEY }));
+  assert.deepEqual([s.ok, s.saved], [true, true]);
+  const stored = await store2.getCredentials(CUSTOM_KEY);
+  assert.equal(maskKey(stored.accessToken), 'sk-**********', 'shown as the first three characters, then *');
+  seen.length = 0;
+  s = await retry(() => saveCustom(store2, { ...form, key: '', keepKey: true }, { saved: stored }));
+  assert.equal(s.ok, true, 'the saved key was used for the test');
+  assert.equal(seen.at(-1).auth, `Bearer ${KEY}`);
+  s = await retry(() => saveCustom(store2, { ...form, address: 'https://elsewhere.example.org', key: '', keepKey: true }, { saved: stored }));
+  assert.deepEqual([s.ok, s.saved], [false, false], 'the saved key is not sent to a different server');
+  assert.equal((await store2.getCredentials(CUSTOM_KEY)).baseUrl, `${origin}/v1`, 'and nothing was overwritten');
 } finally {
   clearRuntimeModels((m) => m.authStorageKeys?.includes(CUSTOM_KEY));
   cleanup();

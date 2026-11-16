@@ -459,30 +459,70 @@
       row);
   }
 
-  // The user's own OpenAI-compatible provider: four fields in place, under its row. The key is never sent back to the
-  // page, so a saved setup shows its name, address and model, and an empty key box keeps the saved key.
+  // The user's own OpenAI-compatible provider: four fields in place, under its row.
+  // - What's typed lives in ui.customDraft (and is mirrored to the app), so redraws and leaving the panel, say to copy a
+  //   value from somewhere else, lose nothing.
+  // - A saved key shows as its first three characters and then *; touching the box empties it for a new key, leaving it
+  //   empty puts the saved key's mask back (the saved key is kept).
+  // - Connect saves what's there, sends a test message, and the result stays on screen under the button.
   function customForm(p) {
     const c = p.custom ?? {};
+    // Saved (the app cleared the draft): show it as saved, with the key masked, not as typed.
+    if (ui.customSent && !c.testing && c.saved && !c.draft) { ui.customDraft = null; ui.customSent = false; }
+    const d = ui.customDraft ?? (ui.customDraft = c.draft
+      ? { name: c.draft.name, address: c.draft.address, model: c.draft.model, key: c.draft.key, keepKey: !!c.draft.keepKey }
+      : { name: c.name ?? '', address: c.address ?? '', model: c.model ?? '', key: c.keyMask ?? '', keepKey: !!c.keyMask });
     const field = (id, label, o = {}) => {
       const input = el('input', { type: o.password ? 'password' : 'text', id: `custom-${id}`, autocomplete: 'off', spellcheck: false, placeholder: o.ph ?? '', 'aria-label': label, maxLength: o.max ?? 500, value: o.value ?? '' });
       return { input, row: el('div', { className: 'customfield' }, el('label', { htmlFor: `custom-${id}`, textContent: label }), el('span', { className: 'px field' }, input)) };
     };
-    const name = field('name', 'Name (optional)', { ph: 'My AI', max: 40, value: c.name });
-    const address = field('address', 'Server address', { ph: 'https://your-ai-server.example.com/v1', value: c.address });
-    const key = field('key', "API key (leave empty if your server doesn't need one)", { password: true, ph: p.on ? 'Leave empty to keep the saved key' : 'Paste API key', max: 1000 });
-    const model = field('model', 'Model name', { ph: "The model's name on your server", max: 200, value: c.model });
+    const name = field('name', 'Name (optional)', { ph: 'My AI', max: 40, value: d.name });
+    const address = field('address', 'Server address', { ph: 'https://your-ai-server.example.com/v1', value: d.address });
+    const key = field('key', "API key (leave empty if your server doesn't need one)", { max: 1000, ph: 'Paste API key' });
+    const model = field('model', 'Model name', { ph: "The model's name on your server", max: 200, value: d.model });
+    const status = el('p', { className: 'customstatus', role: 'status', 'aria-live': 'polite' });
+
+    // The key box: the saved key's mask until it's touched, then a password field for the new one.
+    const showMask = () => { key.input.type = 'text'; key.input.value = c.keyMask; key.input.placeholder = ''; d.keepKey = true; d.key = c.keyMask; };
+    const showEntry = (value = '') => { key.input.type = 'password'; key.input.value = value; key.input.placeholder = c.keyMask ? 'Paste the new API key, or leave empty to keep the saved one' : 'Paste API key'; d.keepKey = false; d.key = value; };
+    if (d.keepKey && c.keyMask) showMask(); else showEntry(d.keepKey ? '' : d.key);
+    if (c.keyMask) {
+      key.input.addEventListener('focus', () => { if (d.keepKey) { showEntry(''); } });
+      key.input.addEventListener('blur', () => { if (!key.input.value) showMask(); });
+    }
+
+    // What the line under the button says: a problem with the form first, then the test as it runs and as it ended.
+    const showStatus = () => {
+      const m = ui.customMsg;
+      const [text, bad] = m ? [m, true] : c.testing ? ['Testing the connection…', false] : c.formError ? [c.formError, true]
+        : c.ok === true && c.saved ? ['Connected. Your server answered the test message.', false]
+        : c.ok === false && c.saved ? [`Saved, but the test failed: ${c.why}`, true] : ['', false];
+      status.textContent = text; status.classList.toggle('bad', bad); status.hidden = !text;
+    };
+    showStatus();
+
+    let timer = null;
+    const mirror = () => { // what's typed goes to the app a moment after typing stops
+      clearTimeout(timer);
+      timer = setTimeout(() => send({ type: 'panel_custom_draft', name: d.name, address: d.address, model: d.model, key: d.keepKey ? '' : d.key, keepKey: d.keepKey }), 300);
+    };
+    for (const [f, k] of [[name, 'name'], [address, 'address'], [model, 'model']]) f.input.addEventListener('input', () => { d[k] = f.input.value; ui.customMsg = null; showStatus(); mirror(); });
+    key.input.addEventListener('input', () => { d.key = key.input.value; d.keepKey = false; ui.customMsg = null; showStatus(); mirror(); });
+
     const save = () => {
-      if (!address.input.value.trim()) return address.input.focus();
-      if (!model.input.value.trim()) return model.input.focus();
-      send({ type: 'panel_custom', name: name.input.value.trim(), address: address.input.value.trim(), key: key.input.value.trim(), model: model.input.value.trim() });
-      key.input.value = '';
-      closeKey();
+      const v = (f) => f.input.value.trim();
+      const need = !v(address) ? [address, 'Type the address of your AI server.'] : !v(model) ? [model, "Type the model name your server expects."] : null;
+      if (need) { ui.customMsg = need[1]; showStatus(); return need[0].input.focus(); }
+      ui.customMsg = null; ui.customSent = true; clearTimeout(timer);
+      status.textContent = 'Testing the connection…'; status.classList.remove('bad'); status.hidden = false;
+      send({ type: 'panel_custom', name: v(name), address: v(address), key: d.keepKey ? '' : key.input.value.trim(), keepKey: d.keepKey, model: v(model) });
     };
     for (const f of [name, address, key, model]) f.input.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); else if (e.key === 'Escape') { e.stopPropagation(); closeKey(); } });
     return el('div', { className: 'customform', hidden: ui.key !== p.id, 'data-anim': `key-${p.id}` },
       name.row, address.row, key.row, model.row,
       el('div', { className: 'keyform' }, btn('Connect', save, { k: `save:${p.id}` })),
-      el('p', { className: 'empty note', textContent: "I send one short test message to check it. After that, everything you say goes to this server, under its owner's privacy policy. It works with text only, so no screenshots are sent." }));
+      status,
+      el('p', { className: 'empty note', textContent: "Connect saves these settings and sends one short test message. After that, everything you say goes to this server, under its owner's privacy policy. It works with text only, so no screenshots are sent." }));
   }
   const customSetup = (p) => link(ui.key === p.id ? 'Cancel' : 'Set up', () => toggleKey(p.id), { k: `addkey:${p.id}`, aria: `Set up ${p.label}` });
   const customChange = (p) => link(ui.key === p.id ? 'Cancel' : 'Change', () => toggleKey(p.id), { k: `addkey:${p.id}`, aria: `Change ${p.label}` });
@@ -503,12 +543,15 @@
       el('select', { 'aria-label': 'Model', 'data-k': 'model', on: { change: (e) => act(`model:${e.target.value}`) } },
         model ? null : el('option', { value: '', textContent: 'Pick a model', disabled: true, selected: true }),
         on.map((p) => el('optgroup', { label: p.label }, p.models.map((m) => el('option', { value: `${p.id}:${m.id}`, textContent: m.name, selected: `${p.id}:${m.id}` === model })))))) : null;
+    // The custom provider's form opens by itself, once, when there's something typed and not saved, or the last test failed.
+    const cp = state.providers.find((x) => x.id === 'custom');
+    if (cp && !ui.customAutoOpen) { ui.customAutoOpen = true; if (cp.custom?.draft || (cp.saved && cp.custom?.ok === false)) ui.key = 'custom'; }
     const accounts = state.providers.filter((p) => p.on || p.method);
     const { box, nav } = paged('accounts', accounts, (p) => el('li', { className: `acct${ui.key === p.id ? ' open' : ''}` },
       el('div', { className: 'setting' },
         // Connected: a lit dot by the name, its word in a tooltip (and for screen readers).
         el('span', { className: 'acct-name' }, p.label, p.on ? el('span', { className: 'led on', role: 'img', 'aria-label': p.method === 'local' || p.method === 'custom' ? 'Connected' : 'Signed in', 'data-tip': p.method === 'local' || p.method === 'custom' ? 'Connected' : 'Signed in' }) : null),
-        p.on ? el('span', { className: 'row-btns' },
+        (p.method === 'custom' ? p.saved : p.on) ? el('span', { className: 'row-btns' },
           p.method === 'custom' ? customChange(p) : p.key ? changeKey(p) : null,
           ui.key === p.id ? null : armed(p.signedIn && !p.keySaved ? 'Sign out' : 'Remove', 'Confirm', `signout:${p.id}`, `signout:${p.id}`, `Remove ${p.label} from AI Assistant`))
           : state.loggingIn === p.id ? el('span', { className: 'waiting', textContent: 'Signing in…' })
@@ -1098,7 +1141,15 @@
           { id: 'kimi-code', label: 'Kimi Code', billing: 'Uses your Kimi Code plan. Create the key in the Kimi Code Console.' },
           { id: 'moonshot', label: 'Moonshot', billing: 'Pay-per-token from platform.moonshot.ai.' }] },
         { id: 'local', label: 'Ollama (on this computer)', on: false, method: 'local', models: [] },
-        { id: 'custom', label: 'Custom OpenAI Provider', on: false, method: 'custom', models: [], custom: null },
+        // ?custom=ok or ?custom=fail previews a saved setup (its test passed or failed); ?custom=draft one typed but not saved.
+        (() => {
+          const q = new URLSearchParams(location.search).get('custom');
+          const base = { saved: false, ok: null, why: '', name: '', address: '', model: '', keyMask: '', draft: null, testing: false, formError: '' };
+          const saved = { ...base, saved: true, name: 'Work AI', address: 'https://llm.example.com/v1', model: 'house-model', keyMask: 'sk-**********' };
+          const custom = q === 'ok' ? { ...saved, ok: true } : q === 'fail' ? { ...saved, ok: false, why: 'The server refused the API key. Check the key and try again.' }
+            : q === 'draft' ? { ...base, draft: { name: 'Half done', address: 'https://llm.example.com/v1', model: '', key: 'sk-typed-but-not-saved', keepKey: false } } : base;
+          return { id: 'custom', label: 'Custom OpenAI Provider', on: q === 'ok', saved: custom.saved, method: 'custom', models: [], custom };
+        })(),
         ...['xAI', 'GLM (Z.ai)', 'MiniMax', 'Xiaomi', 'DeepSeek', 'Sakana', 'OpenRouter', 'Hugging Face'].map((label) => ({ id: label.toLowerCase().replace(/\W/g, ''), label, on: false, method: 'key', models: [] })),
       ],
       loggingIn: null,

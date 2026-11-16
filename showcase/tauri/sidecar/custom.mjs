@@ -39,6 +39,19 @@ export function cleanCustom({ name, address, key, model } = {}) {
   return { ok: true, value: { name: text(name, 40) || DEFAULT_NAME, baseUrl, key: text(key, 1000), model: modelName } };
 }
 
+/**
+ * How a saved key is shown: the first three characters, the rest as *. A key of six characters or fewer is shown as
+ * all * (three characters would give away half of it).
+ */
+export function maskKey(key) {
+  const k = String(key ?? '');
+  if (!k) return '';
+  return k.length > 6 ? k.slice(0, 3) + '*'.repeat(k.length - 3) : '*'.repeat(k.length);
+}
+
+/** The server's host, for comparing "the same server" (a changed path or port is still the same machine). */
+export const hostOf = (baseUrl) => { try { return new URL(baseUrl).hostname.toLowerCase(); } catch { return ''; } };
+
 /** The model entry gg-core needs (id, name, window...). Text only, 32k window, no thinking: nothing is guessed about the server. */
 export function customModelInfo({ name, baseUrl, model }) {
   return toModelInfo(
@@ -48,6 +61,18 @@ export function customModelInfo({ name, baseUrl, model }) {
 }
 
 const mention = (s) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, 160);
+
+/** Why a request never got an answer, in plain words, with the technical code at the end so it can be looked up. */
+export function reachWhy(e) {
+  const code = String(e?.cause?.code ?? e?.code ?? '');
+  const tail = code ? ` (${code})` : e?.message && e.message !== 'fetch failed' ? ` (${mention(e.message)})` : '';
+  if (e?.name === 'TimeoutError' || e?.name === 'AbortError' || /TIMEDOUT|CONNECT_TIMEOUT/.test(code)) return `The server didn't answer in time. Check the address and that it's running${tail}.`;
+  if (/^(ENOTFOUND|EAI_AGAIN)$/.test(code)) return `I couldn't find that server by name. Check how the address is spelled${tail}.`;
+  if (code === 'ECONNREFUSED') return `The server refused the connection. Check the address and port, and that it's running${tail}.`;
+  if (/CERT|SELF_SIGNED|UNABLE_TO_VERIFY|ERR_TLS|SSL/.test(code)) return `This computer doesn't trust the server's security certificate. A company certificate may need to be installed${tail}.`;
+  if (/ECONNRESET|SOCKET|EPIPE/.test(code)) return `The connection was closed before the server answered. A proxy or firewall may be in the way${tail}.`;
+  return `I couldn't reach that address. Check it, and that this computer can get to it (a proxy may be needed)${tail}.`;
+}
 
 /**
  * One tiny request to the server before anything is saved, so a wrong address, key or model name shows up now, in
@@ -71,8 +96,7 @@ export async function testCustom({ baseUrl, key, model }, { fetchImpl = fetch, t
       else return { ok: false, why: `The server didn't accept the request: ${mention(body) || res.status}` };
     }
   } catch (e) {
-    if (e?.name === 'TimeoutError' || e?.name === 'AbortError') return { ok: false, why: "The server didn't answer in time. Check the address and that it's running." };
-    return { ok: false, why: "I couldn't reach that address. Check it, and that this computer can get to it." };
+    return { ok: false, why: reachWhy(e) };
   }
   if (res.ok) return { ok: true };
   const body = mention(await res.text().catch(() => ''));
@@ -80,4 +104,25 @@ export async function testCustom({ baseUrl, key, model }, { fetchImpl = fetch, t
   if (res.status === 404) return { ok: false, why: `The server doesn't know that address or model name${body ? ` (${body})` : ''}. Check both.` };
   if (res.status === 429) return { ok: true }; // it answered and knows us: busy is not wrong
   return { ok: false, why: `The server answered with an error (${res.status})${body ? `: ${body}` : ''}.` };
+}
+
+/**
+ * Saves what the form holds, then tests it, and says how it went. The settings are kept whatever the test says (so
+ * they never "disappear" because a server was down for a minute); only a form that can't be read at all saves
+ * nothing, and says why. `input.keepKey`: the key box was left as it was shown (masked), so the saved key stays, but only
+ * for the same server: a key is never quietly sent to a different one. `saved`: the stored credential ({ accessToken,
+ * baseUrl }) or null. → { ok, why, saved, value? }: ok is the test's result, saved is whether anything was kept.
+ */
+export async function saveCustom(auth, input, { saved = null, test = testCustom } = {}) {
+  const r = cleanCustom(input);
+  if (!r.ok) return { ok: false, saved: false, why: r.why };
+  const { name, baseUrl, model } = r.value;
+  let key = r.value.key;
+  if (!key && input?.keepKey && saved?.accessToken && saved.accessToken !== 'local') {
+    if (hostOf(saved.baseUrl) !== hostOf(baseUrl)) return { ok: false, saved: false, why: 'You changed the server, so paste its API key again. The saved key stays with the old server.' };
+    key = saved.accessToken;
+  }
+  await auth.setLocalEndpoint(CUSTOM_ID, baseUrl, key || undefined);
+  const t = await test({ baseUrl, key, model });
+  return { ok: t.ok, why: t.ok ? '' : t.why, saved: true, value: { name, baseUrl, model } };
 }

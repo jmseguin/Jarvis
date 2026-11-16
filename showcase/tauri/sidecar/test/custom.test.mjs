@@ -2,7 +2,7 @@
 // lives beside Ollama's models. Run: npm test
 import assert from 'node:assert/strict';
 import { clearRuntimeModels, getAuthStorageKeys, getModel, getModelsForProvider, registerRuntimeModels } from '@kenkaiiii/gg-core';
-import { CUSTOM_ID, CUSTOM_KEY, cleanCustom, customModelInfo, isCustomModel, testCustom } from '../custom.mjs';
+import { CUSTOM_ID, CUSTOM_KEY, cleanCustom, customModelInfo, hostOf, isCustomModel, maskKey, reachWhy, saveCustom, testCustom } from '../custom.mjs';
 import { MIN_CONTEXT, OLLAMA, connectLocal } from '../local.mjs';
 
 const ok = (input) => { const r = cleanCustom(input); assert.equal(r.ok, true, `${JSON.stringify(input)} should pass: ${r.why}`); return r.value; };
@@ -104,5 +104,77 @@ assert.deepEqual(getAuthStorageKeys('local', 'local/custom/gpt-x'), [CUSTOM_KEY]
 clearRuntimeModels((m) => m.authStorageKeys?.includes(CUSTOM_KEY));
 assert.equal(getModel('local/custom/gpt-x'), undefined, 'signing out can remove it');
 assert.equal(CUSTOM_ID, 'custom');
+
+// ---- the saved key is shown masked: the first three characters, the rest as *
+assert.equal(maskKey('sk-abcdef123456'), 'sk-************');
+assert.equal(maskKey('sk-abcdef123456').length, 'sk-abcdef123456'.length);
+assert.equal(maskKey('abcdefg'), 'abc****', 'seven characters: the first three show');
+assert.equal(maskKey('abcdef'), '******', 'six or fewer: all hidden, three would give away half');
+assert.equal(maskKey('abc'), '***');
+assert.equal(maskKey(''), '');
+assert.equal(maskKey(undefined), '');
+assert.equal(hostOf('https://LLM.example.com:8443/v1'), 'llm.example.com');
+assert.equal(hostOf('not a url'), '');
+
+// ---- why a request got no answer, in plain words (the code stays at the end for lookups)
+const why = (code, name) => reachWhy(Object.assign(new TypeError('fetch failed'), { cause: { code }, ...(name ? { name } : {}) }));
+assert.match(why('ENOTFOUND'), /couldn't find that server by name.*\(ENOTFOUND\)/);
+assert.match(why('ECONNREFUSED'), /refused the connection.*\(ECONNREFUSED\)/);
+assert.match(why('UNABLE_TO_VERIFY_LEAF_SIGNATURE'), /doesn't trust the server's security certificate.*\(UNABLE_TO_VERIFY_LEAF_SIGNATURE\)/);
+assert.match(why('SELF_SIGNED_CERT_IN_CHAIN'), /certificate/);
+assert.match(why('ETIMEDOUT'), /didn't answer in time/);
+assert.match(why('UND_ERR_CONNECT_TIMEOUT'), /didn't answer in time/);
+assert.match(why('ECONNRESET'), /connection was closed.*proxy or firewall/);
+assert.match(why('SOMETHING_ELSE'), /couldn't reach that address.*\(SOMETHING_ELSE\)/);
+assert.doesNotMatch(reachWhy(new TypeError('fetch failed')), /\(\)|undefined/, 'no code: no empty brackets');
+
+// ---- saving: the settings are kept whatever the test says
+{
+  const stored = [];
+  const auth = { setLocalEndpoint: async (...a) => stored.push(a) };
+  const pass = async () => ({ ok: true });
+  const fail = async () => ({ ok: false, why: 'The server refused the API key. Check the key and try again.' });
+  const form = { name: 'Work AI', address: 'https://llm.example.com/v1', key: 'sk-secret', model: 'gpt-x' };
+
+  // A form that can't be read saves nothing and says why.
+  let r = await saveCustom(auth, { ...form, model: '' }, { test: pass });
+  assert.deepEqual([r.ok, r.saved], [false, false]); assert.match(r.why, /model name/);
+  r = await saveCustom(auth, { ...form, address: '' }, { test: pass });
+  assert.deepEqual([r.ok, r.saved], [false, false]); assert.match(r.why, /address/);
+  assert.equal(stored.length, 0, 'nothing is saved from a form that is not complete');
+
+  // Good form, good server.
+  r = await saveCustom(auth, form, { test: pass });
+  assert.deepEqual([r.ok, r.saved, r.why], [true, true, '']);
+  assert.deepEqual(r.value, { name: 'Work AI', baseUrl: 'https://llm.example.com/v1', model: 'gpt-x' });
+  assert.deepEqual(stored.at(-1), ['custom', 'https://llm.example.com/v1', 'sk-secret']);
+
+  // Good form, the test fails: still saved, and the reason is returned.
+  stored.length = 0;
+  r = await saveCustom(auth, form, { test: fail });
+  assert.deepEqual([r.ok, r.saved], [false, true]); assert.match(r.why, /refused the API key/);
+  assert.equal(stored.length, 1, 'the settings stay even though the test failed');
+
+  // A key box left as shown (masked) keeps the saved key for the same server...
+  const savedCred = { accessToken: 'sk-saved-key', baseUrl: 'https://llm.example.com/v1' };
+  stored.length = 0;
+  r = await saveCustom(auth, { ...form, key: '', keepKey: true, model: 'other' }, { saved: savedCred, test: pass });
+  assert.equal(r.ok, true); assert.equal(stored[0][2], 'sk-saved-key');
+  r = await saveCustom(auth, { ...form, key: '', keepKey: true, address: 'https://llm.example.com/other/v2' }, { saved: savedCred, test: pass });
+  assert.equal(stored.at(-1)[2], 'sk-saved-key', 'a different path on the same server is still that server');
+  // ...but never goes to a different server.
+  stored.length = 0;
+  r = await saveCustom(auth, { ...form, key: '', keepKey: true, address: 'https://elsewhere.example.org/v1' }, { saved: savedCred, test: pass });
+  assert.deepEqual([r.ok, r.saved], [false, false]); assert.match(r.why, /changed the server/);
+  assert.equal(stored.length, 0);
+  // A new key typed in wins; clearing the box (not "keep") means no key.
+  r = await saveCustom(auth, { ...form, key: 'sk-new', keepKey: false }, { saved: savedCred, test: pass });
+  assert.equal(stored.at(-1)[2], 'sk-new');
+  r = await saveCustom(auth, { ...form, key: '', keepKey: false }, { saved: savedCred, test: pass });
+  assert.equal(stored.at(-1)[2], undefined, 'no key: the server needs none');
+  // gg-core\'s "no key" marker is not a key to keep.
+  r = await saveCustom(auth, { ...form, key: '', keepKey: true }, { saved: { accessToken: 'local', baseUrl: form.address }, test: pass });
+  assert.equal(stored.at(-1)[2], undefined);
+}
 
 console.log('custom tests: ok');

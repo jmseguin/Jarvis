@@ -49,7 +49,7 @@ import { createActivity } from './activity.mjs';
 import { canCircle, canSnap, hasHands, hasHotkeys, hasVoice, linuxSession, micTrouble, needsVoiceModel, platformLine, samePair, seesPointer, writeChord, writeChords } from './platform.mjs';
 import { accountKeys, keyCards, keyKinds, signInCards } from './providers.mjs';
 import { OLLAMA, OLLAMA_KEY, connectLocal, contextNote, withWindow } from './local.mjs';
-import { CUSTOM_ID, CUSTOM_KEY, DEFAULT_NAME as CUSTOM_DEFAULT_NAME, cleanCustom, customModelInfo, isCustomModel, testCustom } from './custom.mjs';
+import { CUSTOM_ID, CUSTOM_KEY, DEFAULT_NAME as CUSTOM_DEFAULT_NAME, customModelInfo, isCustomModel, maskKey, saveCustom } from './custom.mjs';
 import { activityLogs, buildReport, redact, reportDir, reportName, reveal, run, scrubConfig, tail } from './diagnostics.mjs';
 import { detailsText, explain } from './errors.mjs';
 import { aboutAiAssistant } from './about.mjs';
@@ -316,6 +316,8 @@ async function refreshAuth() {
   const hasCustom = await auth.hasCredentials(CUSTOM_KEY).catch(() => false);
   if (hasCustom) storedKeys.add(CUSTOM_KEY); else storedKeys.delete(CUSTOM_KEY);
   signedIn.set(CUSTOM_ID, hasCustom);
+  const customCred = hasCustom ? await auth.getCredentials(CUSTOM_KEY).catch(() => null) : null;
+  customMask = customCred?.accessToken && customCred.accessToken !== 'local' ? maskKey(customCred.accessToken) : '';
   syncCustom();
 }
 // Models live only in memory (gg-core's runtime list), so the custom one is registered again from config on every
@@ -325,29 +327,44 @@ function syncCustom() {
   const c = config.custom;
   if (storedKeys.has(CUSTOM_KEY) && c?.baseUrl && c.model) registerRuntimeModels([customModelInfo(c)]);
 }
-// Sets up (or changes) the user's own OpenAI-compatible provider from the form. → { ok, name } or { ok: false, why }.
-// Nothing is saved until one small request to the server has worked, so mistakes show up here, in plain words.
+// The custom provider's form, between visits: what was typed but not saved yet (kept in memory, so leaving the panel
+// to copy a value from somewhere else loses nothing; the key is never written to disk until it's saved).
+// customMask: the saved key as shown (first three characters, then *). customTesting: a test request is running.
+let customDraft = null, customMask = '', customTesting = false, customFormError = '';
+const customState = () => {
+  const c = config.custom;
+  return {
+    saved: !!c && storedKeys.has(CUSTOM_KEY), name: c?.name ?? '', address: c?.baseUrl ?? '', model: c?.model ?? '', keyMask: customMask,
+    // ok: how the last test went (a setup saved by an older version passed its test before it was saved).
+    ok: c ? (c.ok ?? true) : null, why: c?.why ?? '', testing: customTesting, formError: customFormError,
+    on: !!c && storedKeys.has(CUSTOM_KEY) && (c.ok ?? true),
+    draft: customDraft, // { name, address, model, key, keepKey } or null
+  };
+};
+function rememberCustomDraft(m) {
+  const s = (v, n) => String(v ?? '').slice(0, n);
+  customDraft = { name: s(m.name, 40), address: s(m.address, 500), model: s(m.model, 200), key: s(m.key, 1000), keepKey: !!m.keepKey };
+}
+// Saves the form and tests it. The settings stay whatever the test says (only a form that can't be read saves
+// nothing), and the answer is plain: → { ok, why, saved }. A good test also makes it the model in use.
 async function customLogin(input) {
-  const r = cleanCustom(input);
-  if (!r.ok) return { ok: false, why: r.why };
-  const { name, baseUrl, model } = r.value;
-  let { key } = r.value;
-  if (!key) {
-    // Left empty on a form that's already set up: keep the saved key for the same server.
-    const prev = await auth.getCredentials(CUSTOM_KEY).catch(() => null);
-    if (prev?.baseUrl === baseUrl && prev.accessToken && prev.accessToken !== 'local') key = prev.accessToken;
+  customTesting = true; customFormError = ''; panel();
+  try {
+    const saved = await auth.getCredentials(CUSTOM_KEY).catch(() => null);
+    const r = await saveCustom(auth, input, { saved });
+    if (!r.saved) { rememberCustomDraft(input); customFormError = r.why; return r; } // not complete: it stays as typed, with the reason
+    config.custom = { ...r.value, ok: r.ok, why: r.why, at: Date.now() };
+    customDraft = null;
+    await refreshAuth();
+    if (r.ok) { config.provider = 'local'; config.model = customModelInfo(config.custom).id; }
+    agent = null; saveConfig(); menu();
+    logLine('custom_provider', { host: new URL(r.value.baseUrl).host, model: r.value.model, ok: r.ok, why: r.ok ? undefined : r.why });
+    if (r.ok && !onboarding) say(`Got it. ${r.value.name} is connected.`, 'happy');
+    return { ...r, name: r.value.name };
+  } finally {
+    customTesting = false; panel();
+    if (onboarding) obState();
   }
-  const t = await testCustom({ baseUrl, key, model });
-  if (!t.ok) return { ok: false, why: t.why };
-  await auth.setLocalEndpoint(CUSTOM_ID, baseUrl, key || undefined);
-  config.custom = { name, baseUrl, model };
-  await refreshAuth();
-  config.provider = 'local'; config.model = customModelInfo(config.custom).id;
-  agent = null; saveConfig(); menu();
-  logLine('custom_provider', { host: new URL(baseUrl).host, model });
-  if (onboarding) { ob({ kind: 'login', provider: CUSTOM_ID, phase: 'done' }); obState(); }
-  else say(`Got it. ${name} is connected.`, 'happy');
-  return { ok: true, name };
 }
 // Ollama's models, found when it's connected: those that can see and use tools. ollama.windows: the context it
 // really serves each one with, measured once the model is loaded (until then gg-core may guess 4k).
@@ -1491,7 +1508,7 @@ async function signOut(provider) {
   if (loggingIn === provider) cancelLogin();
   try {
     if (provider === 'local') await auth.clearCredentials(OLLAMA_KEY);
-    else if (provider === CUSTOM_ID) { await auth.clearCredentials(CUSTOM_KEY); config.custom = null; saveConfig(); }
+    else if (provider === CUSTOM_ID) { await auth.clearCredentials(CUSTOM_KEY); config.custom = null; customDraft = null; saveConfig(); }
     else {
       // Claude Code here is AI Assistant's own copy, so this signs only AI Assistant out.
       if (provider === 'anthropic' && await auth.hasClaudeCodeLogin()) await signOutOfClaudeCode(auth);
@@ -1967,9 +1984,9 @@ function panelState() {
       if (p === CUSTOM_ID) {
         const c = config.custom, info = c ? customModelInfo(c) : null;
         return {
-          id: p, label: PROVIDER_LABELS[p], on, method: 'custom', key: false, signedIn: false, keySaved: false, kinds: null,
+          id: p, label: PROVIDER_LABELS[p], on: customState().on, saved: on, method: 'custom', key: false, signedIn: false, keySaved: false, kinds: null,
           models: on && info ? [{ id: info.id, name: info.name }] : [],
-          custom: c ? { name: c.name, address: c.baseUrl, model: c.model } : null, // never the key
+          custom: customState(), // the key only as its mask
         };
       }
       return {
@@ -2474,7 +2491,7 @@ function obState() {
     oauth: signInCards(Object.keys(OAUTH), (id) => oauthOn.get(id), PROVIDER_LABELS),
     apikey: keyCards(AUTH_PROVIDERS, (id) => keyOn.get(id)),
     // The user's own provider: what the form shows when it's already set up (never the key).
-    custom: { on: storedKeys.has(CUSTOM_KEY), name: config.custom?.name ?? '', address: config.custom?.baseUrl ?? '', model: config.custom?.model ?? '' },
+    custom: customState(),
     connected: current && signedIn.get(config.provider) ? { provider: labelOf(), model: current.name } : null,
     keys: keys(),
     actions: config.allowActions,
@@ -2535,7 +2552,8 @@ async function onGuide(m) {
   else if (m.type === 'ob_login' && OAUTH[m.provider]) oauthLogin(m.provider, typeof m.id === 'string' ? m.id.slice(0, 40) : undefined);
   else if (m.type === 'ob_login_cancel') cancelLogin(typeof m.id === 'string' ? m.id : undefined);
   else if (m.type === 'ob_apikey') apiKeyLogin(m.provider, String(m.key ?? '')).catch((e) => { const p = problem('key', e, { store: KEY_STORE }); ob({ kind: 'login', provider: m.provider, phase: 'error', error: p.text, ...linked(p) }); });
-  else if (m.type === 'ob_custom') customLogin(m).then((r) => { if (!r.ok) ob({ kind: 'login', provider: CUSTOM_ID, phase: 'error', error: r.why }); }).catch((e) => { const p = problem('key', e, { store: KEY_STORE }); ob({ kind: 'login', provider: CUSTOM_ID, phase: 'error', error: p.text, ...linked(p) }); });
+  else if (m.type === 'ob_custom_draft') rememberCustomDraft(m);
+  else if (m.type === 'ob_custom') customLogin(m).then((r) => { if (r.ok) ob({ kind: 'login', provider: CUSTOM_ID, phase: 'done' }); else ob({ kind: 'login', provider: CUSTOM_ID, phase: 'error', error: r.saved ? `Saved, but the test failed: ${r.why}` : r.why }); }).catch((e) => { const p = problem('key', e, { store: KEY_STORE }); ob({ kind: 'login', provider: CUSTOM_ID, phase: 'error', error: p.text, ...linked(p) }); });
   else if (m.type === 'ob_files') ob({ kind: 'files', status: await filesStatus(!!m.request) });
   else if (m.type === 'set_actions') { config.allowActions = !!m.on; agents.setAllow(config.allowActions); saveConfig(); menu(); obState(); }
   else if (m.type === 'set_login') setLogin(!!m.on);
@@ -2590,7 +2608,8 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     if (storageKeyProvider(id) !== m.provider) return;
     apiKeyLogin(id, m.key.slice(0, 1000)).then(() => panelNote(signedIn.get(m.provider) ? `${label} is connected.` : `That ${label} key didn't work.`, !signedIn.get(m.provider)))
       .catch((e) => { const p = problem('key', e, { store: KEY_STORE }); panelNote(p.text, true, p); });
-  } else if (m.type === 'panel_custom') customLogin(m).then((r) => panelNote(r.ok ? `${r.name} is connected.` : r.why, !r.ok)).catch((e) => { const p = problem('key', e, { store: KEY_STORE }); panelNote(p.text, true, p); });
+  } else if (m.type === 'panel_custom_draft') rememberCustomDraft(m);
+  else if (m.type === 'panel_custom') customLogin(m).then((r) => panelNote(r.ok ? `${r.name} is connected.` : r.saved ? `Saved, but the test failed: ${r.why}` : r.why, !r.ok)).catch((e) => { const p = problem('key', e, { store: KEY_STORE }); panelNote(p.text, true, p); });
   else if ((m.type === 'panel_fishkey' || m.type === 'panel_geminikey') && typeof m.key === 'string') voiceKeyLogin({ provider: m.type === 'panel_geminikey' ? 'gemini' : 'fish', given: m.key.slice(0, 1000), note: panelNote }).catch((e) => console.error('voice key', e));
   else if (m.type === 'answer') { pending.get(m.id)?.(m.text ?? null); pending.delete(m.id); }
   else if (m.type === 'ui_ready') {
