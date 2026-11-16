@@ -215,7 +215,7 @@ pub fn is_roamies(pid: u32, exe: &str) -> bool {
         let me = std::process::id();
         (me, parent_pid(me))
     });
-    pid == me || Some(pid) == parent || ["roamies", "roamies-voice", "roamies-hands"].contains(&exe.to_lowercase().as_str())
+    pid == me || Some(pid) == parent || ["ai_assistant", "ai_assistant-voice", "ai_assistant-hands", "roamies", "roamies-voice", "roamies-hands"].contains(&exe.to_lowercase().as_str())
 }
 
 // ---------- windows ----------

@@ -108,16 +108,19 @@ func resolveWin(_ target: String) -> Win? {
         return all.first
     }
     if target.hasPrefix("window:"), let id = Int(target.dropFirst(7)) { return all.first { $0.id == id } }
-    if target.hasPrefix("app:") {
-        let name = String(target.dropFirst(4))
-        if let w = mainWindow(all.filter { appMatches($0.app, name) }) { return w }
-        // Running but no visible window (hidden or minimised): bring it forward and look again.
-        if let app = NSWorkspace.shared.runningApplications.first(where: { appMatches($0.localizedName ?? "", name) }) {
-            app.unhide()
-            app.activate(options: [.activateAllWindows])
-            Thread.sleep(forTimeInterval: 0.6)
-            return windows().first { $0.pid == app.processIdentifier }
-        }
+    let isExplicitApp = target.hasPrefix("app:")
+    let name = isExplicitApp ? String(target.dropFirst(4)) : target
+    if let w = mainWindow(all.filter { appMatches($0.app, name) }) { return w }
+    if !isExplicitApp {
+        let needle = name.lowercased().trimmingCharacters(in: .whitespaces)
+        if !needle.isEmpty, let w = mainWindow(all.filter { $0.title.lowercased().contains(needle) }) { return w }
+    }
+    // Running but no visible window (hidden or minimised): bring it forward and look again.
+    if let app = NSWorkspace.shared.runningApplications.first(where: { appMatches($0.localizedName ?? "", name) }) {
+        app.unhide()
+        app.activate(options: [.activateAllWindows])
+        Thread.sleep(forTimeInterval: 0.6)
+        return windows().first { $0.pid == app.processIdentifier }
     }
     return nil
 }
@@ -1147,6 +1150,19 @@ func pressKey(_ combo: String) -> Bool {
     var flags: CGEventFlags = []
     var key: CGKeyCode?
     var c = combo.lowercased().trimmingCharacters(in: .whitespaces).replacingOccurrences(of: " ", with: "")
+    if ["playpause", "play_pause", "mediaplaypause", "media_play_pause", "play", "pause"].contains(c) {
+        let key: Int32 = 16 // NX_KEYTYPE_PLAY
+        for isDown in [true, false] {
+            let flags = NSEvent.ModifierFlags(rawValue: isDown ? 0xa00 : 0xb00)
+            let data1 = Int((key << 16) | (isDown ? 0xa00 : 0xb00))
+            if let ev = NSEvent.otherEvent(with: .systemDefined, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil, subtype: 8, data1: data1, data2: -1) {
+                ev.cgEvent?.post(tap: .cghidEventTap)
+            }
+            if isDown { usleep(15_000) }
+        }
+        Thread.sleep(forTimeInterval: 0.05)
+        return true
+    }
     if let a = KEY_ALIASES[c] { c = a }
     // "+" alone, or "cmd++": the last + is the key itself.
     var parts = c.split(separator: "+", omittingEmptySubsequences: true).map(String.init)
@@ -1200,7 +1216,7 @@ let HANDS_OFF: [String: String] = HARD_HANDS_OFF.merging(TERMINAL_APPS) { a, _ i
 
 func isTerminal(_ w: Win) -> Bool {
     if let id = NSRunningApplication(processIdentifier: w.pid)?.bundleIdentifier, TERMINAL_APPS[id] != nil { return true }
-    return ["terminal", "iterm", "iterm2", "headr", "warp", "ghostty", "kitty", "alacritty", "wezterm"].contains(w.app.lowercased())
+    return ["terminal", "iterm", "iterm2", "herdr", "warp", "ghostty", "kitty", "alacritty", "wezterm"].contains(w.app.lowercased())
 }
 
 func handsOff(_ pid: pid_t, allowTerminal: Bool = false) -> String? {
@@ -1447,6 +1463,22 @@ func secretName(_ i: Int) -> String {
 }
 func secretQuery(_ name: String) -> [String: Any] {
     [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: secretService, kSecAttrAccount as String: name]
+}
+
+func focusWindow(_ target: String) -> Win {
+    guard let w = resolve(target) else { fail("no window matching \(target)") }
+    let appEl = axApp(w)
+    if let run = NSRunningApplication(processIdentifier: w.pid) {
+        run.unhide()
+        run.activate(options: [.activateAllWindows])
+    }
+    AXUIElementSetAttributeValue(appEl, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+    if let axw = axWindow(appEl, w) { AXUIElementPerformAction(axw, kAXRaiseAction as CFString) }
+    for _ in 0..<12 {
+        if frontPid() == w.pid { break }
+        Thread.sleep(forTimeInterval: 0.04)
+    }
+    return w
 }
 
 // ---------- commands ----------
@@ -2142,6 +2174,328 @@ case "screencheck":
     let size = ((try? FileManager.default.attributesOfItem(atPath: file))?[.size] as? Int) ?? 0
     try? FileManager.default.removeItem(atPath: file)
     out(["ok": true, "seen": code == 0 && size > 0])
+
+case "desktop":
+    let screens = NSScreen.screens.enumerated().map { idx, s -> [String: Any] in
+        let f = s.frame
+        let vf = s.visibleFrame
+        return [
+            "index": idx,
+            "isMain": s == NSScreen.main,
+            "scale": Double(s.backingScaleFactor),
+            "bounds": ["x": Int(f.origin.x), "y": Int(f.origin.y), "width": Int(f.size.width), "height": Int(f.size.height)],
+            "visibleBounds": ["x": Int(vf.origin.x), "y": Int(vf.origin.y), "width": Int(vf.size.width), "height": Int(vf.size.height)],
+        ]
+    }
+    let fm = NSWorkspace.shared.frontmostApplication
+    let frontInfo: [String: Any] = fm.map {
+        ["app": $0.localizedName ?? "", "bundle": $0.bundleIdentifier ?? "", "pid": Int($0.processIdentifier)]
+    } ?? [:]
+    out(["ok": true, "trusted": AXIsProcessTrusted(), "displays": screens, "frontmost": frontInfo])
+
+case "ax-tree":
+    guard AXIsProcessTrusted() else { fail("Accessibility permission not granted") }
+    let target = args.count > 2 ? args[2] : "front"
+    let maxDepth = max(1, min(10, args.count > 3 ? (Int(args[3]) ?? 4) : 4))
+    let maxNodes = max(10, min(500, args.count > 4 ? (Int(args[4]) ?? 150) : 150))
+    guard let w = resolve(target) else { fail("no window matching \(target)") }
+    var count = 0
+    var truncated = false
+    let axKeys = [kAXRoleAttribute, kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute, kAXIdentifierAttribute, kAXEnabledAttribute, kAXFocusedAttribute, kAXPositionAttribute, kAXSizeAttribute, kAXChildrenAttribute]
+    func walkAx(_ el: AXUIElement, _ depth: Int) -> [String: Any]? {
+        if count >= maxNodes { truncated = true; return nil }
+        count += 1
+        let vals = attrs(el, axKeys)
+        var node: [String: Any] = ["role": strOf(vals[0]) ?? ""]
+        if let t = strOf(vals[1]) { node["title"] = t }
+        if let d = strOf(vals[2]) { node["description"] = d }
+        if let v = strOf(vals[3]) { node["value"] = String(v.prefix(160)) }
+        if let id = strOf(vals[4]) { node["identifier"] = id }
+        if let en = vals[5] as? Bool { node["enabled"] = en }
+        if let fo = vals[6] as? Bool, fo { node["focused"] = true }
+        if let r = frameOf(vals[7], vals[8]) {
+            node["frame"] = ["x": Int(r.origin.x), "y": Int(r.origin.y), "width": Int(r.size.width), "height": Int(r.size.height)]
+        }
+        if depth < maxDepth, let kids = vals[9] as? [AXUIElement], !kids.isEmpty {
+            var childNodes: [[String: Any]] = []
+            for k in kids {
+                if count >= maxNodes { truncated = true; break }
+                if let cn = walkAx(k, depth + 1) { childNodes.append(cn) }
+            }
+            if !childNodes.isEmpty { node["children"] = childNodes }
+        }
+        return node
+    }
+    let root = axApp(w)
+    let tree = walkAx(root, 0) ?? [:]
+    let bundleId = NSRunningApplication(processIdentifier: w.pid)?.bundleIdentifier ?? ""
+    out(["ok": true, "app": w.app, "bundle": bundleId, "window": w.title, "nodes": count, "truncated": truncated, "tree": tree])
+
+case "menu-list":
+    guard AXIsProcessTrusted() else { fail("Accessibility permission not granted") }
+    let target = args.count > 2 ? args[2] : "front"
+    guard let w = resolve(target) else { fail("no window matching \(target)") }
+    let appEl = AXUIElementCreateApplication(w.pid)
+    guard let mbObj = attr(appEl, kAXMenuBarAttribute) else { fail("no menu bar for \(w.app)") }
+    let menuBar = mbObj as! AXUIElement
+    func walkMenu(_ el: AXUIElement, _ depth: Int) -> [[String: Any]] {
+        guard depth < 4, let kids = attr(el, kAXChildrenAttribute) as? [AXUIElement] else { return [] }
+        var items: [[String: Any]] = []
+        for child in kids {
+            let vals = attrs(child, [kAXTitleAttribute, kAXEnabledAttribute, kAXRoleAttribute, kAXChildrenAttribute])
+            let title = strOf(vals[0]) ?? ""
+            let role = strOf(vals[2]) ?? ""
+            if title.isEmpty && role == "AXMenuItem" { continue }
+            var entry: [String: Any] = ["title": title, "enabled": (vals[1] as? Bool) ?? true]
+            if let subKids = vals[3] as? [AXUIElement], !subKids.isEmpty {
+                var subItems: [[String: Any]] = []
+                for sk in subKids {
+                    let sRole = str(sk, kAXRoleAttribute) ?? ""
+                    if sRole == "AXMenu" {
+                        subItems.append(contentsOf: walkMenu(sk, depth + 1))
+                    } else {
+                        subItems.append(contentsOf: walkMenu(sk, depth + 1))
+                    }
+                }
+                if !subItems.isEmpty { entry["items"] = subItems }
+            }
+            if !title.isEmpty || entry["items"] != nil { items.append(entry) }
+        }
+        return items
+    }
+    let menuBundleId = NSRunningApplication(processIdentifier: w.pid)?.bundleIdentifier ?? ""
+    out(["ok": true, "app": w.app, "bundle": menuBundleId, "menus": walkMenu(menuBar, 0)])
+
+case "menu-click":
+    guard AXIsProcessTrusted() else { fail("Accessibility permission not granted") }
+    guard args.count >= 4 else { fail("usage: menu-click <target> <menu> [<item>...]") }
+    let target = args[2]
+    let path = Array(args[3...])
+    guard let w = resolve(target) else { fail("no window matching \(target)") }
+    if let app = NSRunningApplication(processIdentifier: w.pid) { app.activate(options: []) }
+    let appEl = AXUIElementCreateApplication(w.pid)
+    guard let mbObj = attr(appEl, kAXMenuBarAttribute) else { fail("no menu bar for \(w.app)") }
+    var current: AXUIElement = mbObj as! AXUIElement
+    func findMenuItem(_ container: AXUIElement, _ label: String) -> AXUIElement? {
+        guard let kids = attr(container, kAXChildrenAttribute) as? [AXUIElement] else { return nil }
+        var searchIn: [AXUIElement] = kids
+        if kids.count == 1, str(kids[0], kAXRoleAttribute) == "AXMenu",
+           let inner = attr(kids[0], kAXChildrenAttribute) as? [AXUIElement] {
+            searchIn = inner
+        }
+        let needle = label.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        for k in searchIn {
+            if let t = str(k, kAXTitleAttribute), t == label { return k }
+        }
+        for k in searchIn {
+            if let t = str(k, kAXTitleAttribute), t.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == needle { return k }
+        }
+        return nil
+    }
+    for (idx, seg) in path.enumerated() {
+        guard let match = findMenuItem(current, seg) else {
+            fail("menu item not found: \(seg)")
+        }
+        if idx == path.count - 1 {
+            let err = AXUIElementPerformAction(match, kAXPressAction as CFString)
+            if err != .success { fail("menu press failed (\(err.rawValue)) for \(seg)") }
+            out(["ok": true, "app": w.app, "clicked": path])
+        } else {
+            if let sub = (attr(match, kAXChildrenAttribute) as? [AXUIElement])?.first {
+                current = sub
+            } else {
+                _ = AXUIElementPerformAction(match, kAXPressAction as CFString)
+                Thread.sleep(forTimeInterval: 0.08)
+                guard let sub = (attr(match, kAXChildrenAttribute) as? [AXUIElement])?.first else {
+                    fail("submenu did not open for \(seg)")
+                }
+                current = sub
+            }
+        }
+    }
+
+case "focus":
+    guard AXIsProcessTrusted() else { fail("Accessibility permission not granted") }
+    let target = args.count >= 2 ? args[1] : "front"
+    let w = focusWindow(target)
+    out(["ok": true, "app": w.app, "pid": w.pid, "active": frontPid() == w.pid])
+
+case "hover":
+    guard AXIsProcessTrusted() else { fail("Accessibility permission not granted") }
+    let target = args.count >= 2 ? args[1] : "front"
+    let w = focusWindow(target)
+    let cx = Double(w.x) + Double(w.w) / 2.0
+    let cy = Double(w.y) + Double(w.h) / 2.0
+    let x: Double = args.count >= 4 ? (Double(args[2]) ?? cx) : cx
+    let y: Double = args.count >= 4 ? (Double(args[3]) ?? cy) : cy
+    let pt = CGPoint(x: x, y: y)
+    let hSrc = CGEventSource(stateID: .hidSystemState)
+    CGWarpMouseCursorPosition(pt)
+    CGAssociateMouseAndMouseCursorPosition(1)
+    CGEvent(mouseEventSource: hSrc, mouseType: .mouseMoved, mouseCursorPosition: pt, mouseButton: .left)?.post(tap: .cghidEventTap)
+    usleep(60_000)
+    out(["ok": true, "app": w.app, "x": x, "y": y])
+
+case "find":
+    guard AXIsProcessTrusted() else { fail("Accessibility permission not granted") }
+    guard args.count >= 3 else { fail("usage: find <target> <queryJson>") }
+    let target = args[1]
+    guard let w = resolve(target) else { fail("no window matching \(target)") }
+    guard let qData = args[2].data(using: .utf8),
+          let qObj = (try? JSONSerialization.jsonObject(with: qData)) as? [String: Any] else {
+        fail("invalid query json")
+    }
+    let roleNeedle = (qObj["role"] as? String ?? "").lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+    let textNeedle = (qObj["text"] as? String ?? "").lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+    let maxResults = max(1, min(60, qObj["maxResults"] as? Int ?? 20))
+    let maxDepth = max(1, min(14, qObj["maxDepth"] as? Int ?? 10))
+    let root = axWindow(axApp(w), w) ?? axApp(w)
+    let findKeys = [kAXRoleAttribute, kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute, kAXIdentifierAttribute, kAXHelpAttribute, kAXEnabledAttribute, kAXFocusedAttribute, kAXPositionAttribute, kAXSizeAttribute, kAXChildrenAttribute]
+    var matches: [[String: Any]] = []
+    var visited = 0
+    var stack: [(AXUIElement, Int)] = [(root, 0)]
+    while !stack.isEmpty && matches.count < maxResults && visited < 4000 {
+        let (el, depth) = stack.removeLast()
+        visited += 1
+        let vals = attrs(el, findKeys)
+        let role = strOf(vals[0]) ?? ""
+        let title = strOf(vals[1]) ?? ""
+        let desc = strOf(vals[2]) ?? ""
+        let val = strOf(vals[3]) ?? ""
+        let ident = strOf(vals[4]) ?? ""
+        let help = strOf(vals[5]) ?? ""
+        let roleOk = roleNeedle.isEmpty || role.lowercased().contains(roleNeedle)
+        let combined = "\(title) \(desc) \(val) \(ident) \(help)".lowercased()
+        let textOk = textNeedle.isEmpty || combined.contains(textNeedle)
+        if roleOk && textOk, let r = frameOf(vals[8], vals[9]), r.width > 0, r.height > 0 {
+            var item: [String: Any] = [
+                "role": role,
+                "centerX": Int(r.midX),
+                "centerY": Int(r.midY),
+                "frame": ["x": Int(r.origin.x), "y": Int(r.origin.y), "width": Int(r.size.width), "height": Int(r.size.height)],
+            ]
+            if !title.isEmpty { item["title"] = title }
+            if !desc.isEmpty { item["description"] = desc }
+            if !val.isEmpty { item["value"] = String(val.prefix(120)) }
+            if !ident.isEmpty { item["identifier"] = ident }
+            if let en = vals[6] as? Bool { item["enabled"] = en }
+            if let fo = vals[7] as? Bool, fo { item["focused"] = true }
+            matches.append(item)
+        }
+        if depth < maxDepth, let kids = vals[10] as? [AXUIElement] {
+            for k in kids.reversed() { stack.append((k, depth + 1)) }
+        }
+    }
+    out(["ok": true, "app": w.app, "window": w.title, "visited": visited, "count": matches.count, "matches": matches])
+
+case "type-raw":
+    guard AXIsProcessTrusted() else { fail("Accessibility permission not granted") }
+    guard args.count >= 2 else { fail("usage: type-raw <text> [target]") }
+    let text = args[1]
+    let target = args.count >= 3 ? args[2] : ""
+    if !target.isEmpty, target != "front", target != "desktop", target != "screen" {
+        _ = focusWindow(target)
+        Thread.sleep(forTimeInterval: 0.08)
+    }
+    let tSrc = CGEventSource(stateID: .hidSystemState)
+    let utf16 = Array(text.utf16)
+    let chunkSize = 16
+    var idx = 0
+    while idx < utf16.count {
+        let end = min(idx + chunkSize, utf16.count)
+        let slice = Array(utf16[idx..<end])
+        let down = CGEvent(keyboardEventSource: tSrc, virtualKey: 0, keyDown: true)
+        let up = CGEvent(keyboardEventSource: tSrc, virtualKey: 0, keyDown: false)
+        down?.keyboardSetUnicodeString(stringLength: slice.count, unicodeString: slice)
+        up?.keyboardSetUnicodeString(stringLength: slice.count, unicodeString: slice)
+        down?.post(tap: .cghidEventTap)
+        up?.post(tap: .cghidEventTap)
+        usleep(12_000)
+        idx = end
+    }
+    out(["ok": true, "typed": text.count, "target": target])
+
+case "pointer":
+    guard AXIsProcessTrusted() else { fail("Accessibility permission not granted") }
+    guard args.count >= 4 else { fail("usage: pointer <move|click|right_click|double_click|drag> ...") }
+    let sub = args[1]
+    let src = CGEventSource(stateID: .hidSystemState)
+    func moveCursor(to pt: CGPoint) {
+        CGWarpMouseCursorPosition(pt)
+        CGAssociateMouseAndMouseCursorPosition(1)
+        CGEvent(mouseEventSource: src, mouseType: .mouseMoved, mouseCursorPosition: pt, mouseButton: .left)?.post(tap: .cghidEventTap)
+        usleep(40_000)
+    }
+    switch sub {
+    case "move":
+        guard let x = Double(args[2]), let y = Double(args[3]) else { fail("invalid coordinates") }
+        moveCursor(to: CGPoint(x: x, y: y))
+        out(["ok": true, "action": "move", "x": x, "y": y])
+    case "click":
+        guard let x = Double(args[2]), let y = Double(args[3]) else { fail("invalid coordinates") }
+        let pt = CGPoint(x: x, y: y)
+        moveCursor(to: pt)
+        CGEvent(mouseEventSource: src, mouseType: .leftMouseDown, mouseCursorPosition: pt, mouseButton: .left)?.post(tap: .cghidEventTap)
+        usleep(30_000)
+        CGEvent(mouseEventSource: src, mouseType: .leftMouseUp, mouseCursorPosition: pt, mouseButton: .left)?.post(tap: .cghidEventTap)
+        out(["ok": true, "action": "click", "x": x, "y": y])
+    case "right_click":
+        guard let x = Double(args[2]), let y = Double(args[3]) else { fail("invalid coordinates") }
+        let pt = CGPoint(x: x, y: y)
+        moveCursor(to: pt)
+        CGEvent(mouseEventSource: src, mouseType: .rightMouseDown, mouseCursorPosition: pt, mouseButton: .right)?.post(tap: .cghidEventTap)
+        usleep(30_000)
+        CGEvent(mouseEventSource: src, mouseType: .rightMouseUp, mouseCursorPosition: pt, mouseButton: .right)?.post(tap: .cghidEventTap)
+        out(["ok": true, "action": "right_click", "x": x, "y": y])
+    case "double_click":
+        guard let x = Double(args[2]), let y = Double(args[3]) else { fail("invalid coordinates") }
+        let pt = CGPoint(x: x, y: y)
+        moveCursor(to: pt)
+        for clickState: Int64 in [1, 2] {
+            let down = CGEvent(mouseEventSource: src, mouseType: .leftMouseDown, mouseCursorPosition: pt, mouseButton: .left)
+            down?.setIntegerValueField(.mouseEventClickState, value: clickState)
+            down?.post(tap: .cghidEventTap)
+            usleep(20_000)
+            let up = CGEvent(mouseEventSource: src, mouseType: .leftMouseUp, mouseCursorPosition: pt, mouseButton: .left)
+            up?.setIntegerValueField(.mouseEventClickState, value: clickState)
+            up?.post(tap: .cghidEventTap)
+            usleep(30_000)
+        }
+        out(["ok": true, "action": "double_click", "x": x, "y": y])
+    case "drag":
+        guard args.count >= 6,
+              let x1 = Double(args[2]), let y1 = Double(args[3]),
+              let x2 = Double(args[4]), let y2 = Double(args[5]) else { fail("usage: pointer drag x1 y1 x2 y2") }
+        let start = CGPoint(x: x1, y: y1)
+        let end = CGPoint(x: x2, y: y2)
+        moveCursor(to: start)
+        CGEvent(mouseEventSource: src, mouseType: .leftMouseDown, mouseCursorPosition: start, mouseButton: .left)?.post(tap: .cghidEventTap)
+        usleep(40_000)
+        let steps = 12
+        for i in 1...steps {
+            let t = Double(i) / Double(steps)
+            let pt = CGPoint(x: x1 + (x2 - x1) * t, y: y1 + (y2 - y1) * t)
+            CGEvent(mouseEventSource: src, mouseType: .leftMouseDragged, mouseCursorPosition: pt, mouseButton: .left)?.post(tap: .cghidEventTap)
+            usleep(15_000)
+        }
+        CGEvent(mouseEventSource: src, mouseType: .leftMouseUp, mouseCursorPosition: end, mouseButton: .left)?.post(tap: .cghidEventTap)
+        out(["ok": true, "action": "drag", "from": [x1, y1], "to": [x2, y2]])
+    default:
+        fail("unknown pointer action \(sub)")
+    }
+
+case "hotkey":
+    guard AXIsProcessTrusted() else { fail("Accessibility permission not granted") }
+    guard args.count >= 2 else { fail("usage: hotkey <combo> [target]") }
+    let combo = args[1]
+    let target = args.count >= 3 ? args[2] : ""
+    if !target.isEmpty, target != "front", target != "desktop", target != "screen" {
+        _ = focusWindow(target)
+        Thread.sleep(forTimeInterval: 0.10)
+    }
+    let ok = pressKey(combo)
+    if !ok { fail("unknown key or shortcut: \(combo)") }
+    out(["ok": true, "combo": combo, "target": target])
 
 default:
     fail("unknown command \(cmd)")

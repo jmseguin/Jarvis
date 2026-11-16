@@ -1,8 +1,8 @@
 {
   "bundle": {
     "externalBin": [
-      "binaries/roamies-voice",
-      "binaries/roamies-hands",
+      "binaries/ai_assistant-voice",
+      "binaries/ai_assistant-hands",
       "binaries/node"
     ]
   }

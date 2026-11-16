@@ -53,7 +53,7 @@ pub(crate) fn spawn_sidecar(app: &AppHandle) {
     hide_console(&mut cmd);
     cmd.arg(&script)
         .env("ROAMIES_VERSION", app.package_info().version.to_string())
-        .env("ROAMIES_HANDS", helper_binary("roamies-hands").map(|p| p.to_string_lossy().into_owned()).unwrap_or_default())
+        .env("ROAMIES_HANDS", helper_binary("ai_assistant-hands").map(|p| p.to_string_lossy().into_owned()).unwrap_or_default())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(stderr);

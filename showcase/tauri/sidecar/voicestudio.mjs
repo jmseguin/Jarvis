@@ -60,12 +60,23 @@ export async function studioStatus({ fetchImpl = fetch, base = studioUrl(), time
     return { ...base0, ok: false, reason: 'engine', message: `${STUDIO_MESSAGES.engine}${engineName ? ` (${engineName})` : ''}${row?.reason ? `: ${String(row.reason).slice(0, 160)}` : ''}. Pick or install an engine in VoiceStudio, then press Check again.` };
   }
   let voices = [];
-  try {
-    const j = await (await fetchImpl(`${base}/v1/audio/voices`, { signal: AbortSignal.timeout(timeout) })).json();
-    // Saved voices (cloned or designed) only; the OpenAI-style aliases all mean "the engine's default".
-    voices = (Array.isArray(j?.voices) ? j.voices : []).filter((v) => v?.type === 'profile' && typeof (v.voice_id ?? v.id) === 'string')
-      .map((v) => ({ id: v.voice_id ?? v.id, name: typeof v.name === 'string' && v.name ? v.name : v.voice_id ?? v.id }));
-  } catch { /* usable without the list: the engine's default voice */ }
+  if (row.supports_cloning !== false) {
+    try {
+      const j = await (await fetchImpl(`${base}/v1/audio/voices`, { signal: AbortSignal.timeout(timeout) })).json();
+      // Saved voices (cloned or designed) only; the OpenAI-style aliases all mean "the engine's default".
+      voices = (Array.isArray(j?.voices) ? j.voices : []).filter((v) => v?.type === 'profile' && typeof (v.voice_id ?? v.id) === 'string')
+        .map((v) => ({ id: v.voice_id ?? v.id, name: typeof v.name === 'string' && v.name ? v.name : v.voice_id ?? v.id }));
+    } catch { /* usable without the list: the engine's default voice */ }
+  }
+  if (Array.isArray(row.preset_voices)) {
+    const seen = new Set(voices.map((v) => v.id));
+    for (const p of row.preset_voices) {
+      if (typeof p === 'string' && p && !seen.has(p)) {
+        seen.add(p);
+        voices.push({ id: p, name: p });
+      }
+    }
+  }
   return { ...base0, ok: true, reason: null, message: null, voices };
 }
 

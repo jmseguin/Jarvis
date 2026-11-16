@@ -435,6 +435,7 @@
     if (m.kind === 'speech') { Roamie.voiceOut?.handle(m); return; } // plays on, even while it changes screens
     if (held) { held.q.push(m); return; }
     if (m.kind === 'sound') { if (Roamie.sfx) Roamie.sfx.enabled = m.on; return; }
+    if (m.kind === 'output_override') { Roamie.voiceOut?.setMuted?.(!!m.on); return; }
     if (m.kind === 'size') { for (const t of Roamie.tiles ?? []) t.creature.setForm?.(m.size); return; }
     if (m.kind === 'look') {
       for (const t of Roamie.tiles ?? []) t.creature.setLook?.(m.look);

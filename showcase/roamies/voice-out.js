@@ -4,7 +4,7 @@
 (() => {
   const R = window.Roamie;
   const LEAD = 0.12; // cushion before a reply's first chunk, so the next chunk is never late
-  let ac = null, out = null, meter = null, buf = null, id = null, endAt = 0, live = [], lv = 0;
+  let ac = null, out = null, meter = null, muteGain = null, buf = null, id = null, endAt = 0, live = [], lv = 0, muted = false;
   // How fast the voice talks (characters a second), learned from each whole reply: its audio length against how much
   // text it said. Drawings pace their marks to it (ink.js).
   let rate = 15, secs = 0;
@@ -19,7 +19,8 @@
       try { ac = new AudioContext({ sampleRate: 44100, latencyHint: 'interactive' }); } catch { ac = new AudioContext({ latencyHint: 'interactive' }); }
       out = ac.createGain();
       meter = ac.createAnalyser(); meter.fftSize = 512; buf = new Float32Array(meter.fftSize);
-      out.connect(meter); meter.connect(ac.destination);
+      muteGain = ac.createGain(); muteGain.gain.value = muted ? 0 : 1;
+      out.connect(meter); meter.connect(muteGain); muteGain.connect(ac.destination);
     }
     if (ac.state !== 'running') ac.resume();
     return ac;
@@ -79,5 +80,9 @@
       return (lv += (v - lv) * (v > lv ? 0.5 : 0.15));
     },
     stop,
+    setMuted(on) {
+      muted = !!on;
+      if (muteGain) muteGain.gain.value = muted ? 0 : 1;
+    },
   };
 })();

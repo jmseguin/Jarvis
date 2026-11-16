@@ -261,7 +261,7 @@ export function createTools({ allowActions, appControl = null, ui, ask, openUrl,
     };
   }
   async function hands(...args) {
-    if (!HANDS) throw new Error('This needs the Roamies app.');
+    if (!HANDS) throw new Error('This needs the AI Assistant app.');
     // Acting in an app may take the real cursor: meanwhile clicks go through the overlay, even where the Sidekick or
     // its bubble sits on the spot being clicked.
     const acting = args[0] === 'act';
@@ -282,9 +282,9 @@ export function createTools({ allowActions, appControl = null, ui, ask, openUrl,
       if (process.platform === 'darwin' && /Accessibility/i.test(res.error ?? '')) {
         // Open the exact Settings pane (once a minute at most) so the fix is one click away.
         if (Date.now() - axNudged > 60_000) { axNudged = Date.now(); openUrl('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'); }
-        throw new Error('Accessibility is off for Roamies, so I can\'t read or control other apps yet. I just opened System Settings → Privacy & Security → Accessibility: switch on Roamies there, then ask again. Tell the user exactly that, briefly.');
+        throw new Error('Accessibility is off for AI Assistant, so I can\'t read or control other apps yet. I just opened System Settings → Privacy & Security → Accessibility: switch on AI Assistant there, then ask again. Tell the user exactly that, briefly.');
       }
-      throw new Error(res.error || 'That did not work.');
+      throw new Error(res.error || `hands ${args[0]} failed: ${r.stdout.trim().slice(0, 120) || 'no error detail'}`);
     }
     return res;
   }
@@ -997,9 +997,11 @@ A drawing stays until the user clears it or the window changes; your next drawin
         agentChangesScreen();
         // mailto: has no //, but it's a link too (it used to be taken for an app name and fail).
         const isUrl = /^[a-z][a-z0-9+.-]*:\/\//i.test(t) || /^mailto:/i.test(t), isPath = /^[~/.]/.test(t) || /^[a-z]:\\/i.test(t);
+        const macAppAlias = (a) => ({ chrome: 'Google Chrome', edge: 'Microsoft Edge', vscode: 'Visual Studio Code', code: 'Visual Studio Code' }[String(a).trim().toLowerCase()] ?? String(a));
         let r;
-        const inApp = app && ['darwin', 'win32'].includes(process.platform) && (isUrl || isPath) ? ['-a', String(app)] : [];
-        if (process.platform === 'darwin') r = await run('open', isUrl || isPath ? [...inApp, isPath ? expand(t) : t] : ['-a', t]);
+        const resolvedApp = app ? macAppAlias(app) : '';
+        const inApp = resolvedApp && ['darwin', 'win32'].includes(process.platform) && (isUrl || isPath) ? ['-a', resolvedApp] : [];
+        if (process.platform === 'darwin') r = await run('open', isUrl || isPath ? [...inApp, isPath ? expand(t) : t] : ['-a', macAppAlias(t)]);
         else if (process.platform === 'win32') r = await winOpen(isPath ? expand(t) : t, app && (isUrl || isPath) ? String(app) : '');
         // Linux: links and files go to xdg-open; a plain name is an app, found by its .desktop file.
         else if (isUrl || isPath) r = await launch('xdg-open', [isPath ? expand(t) : t]);

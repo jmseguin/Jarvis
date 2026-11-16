@@ -143,10 +143,21 @@ export function createSpeaker({ emit, onProblem = () => {}, log = () => {}, Fish
 
   // VoiceStudio: on while picked (it needs no key); local is its last check ({ ok, reason, message, engine, voices, … }).
   let localOn = false, localVoice = null, local = null;
+  // When VoiceStudio's active engine doesn't recognize the configured voice (e.g. a cloned profile on mlx-audio),
+  // fall back to the engine's default voice (null) rather than sending an invalid voice id.
+  const effectiveLocalVoice = () => {
+    if (!localVoice) return null;
+    if (local?.ok && Array.isArray(local.voices) && !local.voices.some((v) => v.id === localVoice)) return null;
+    return localVoice;
+  };
   // Is VoiceStudio up, with a usable engine selected? Never throws; the answer is kept for the panel.
   async function checkLocal() {
     const s = await localStatus().catch((e) => ({ ok: false, reason: 'offline', message: e.message }));
     local = s;
+    const effective = effectiveLocalVoice();
+    if (localVoice && effective === null) {
+      log('voicestudio_voice_fallback', { configured: localVoice, engine: s.engine, fallback: 'default' });
+    }
     log('voicestudio_status', { ok: s.ok, reason: s.reason, engine: s.engine });
     return s;
   }
@@ -169,8 +180,9 @@ export function createSpeaker({ emit, onProblem = () => {}, log = () => {}, Fish
       end() { if (!done) v.end(); },
       abort() { if (done) return; done = true; v?.abort(); if (current === me) current = null; },
     };
+    const activeVoice = effectiveLocalVoice();
     v = new LocalVoiceImpl({
-      voice: localVoice,
+      voice: activeVoice,
       onAudio: (pcm, rate) => {
         if (done) return;
         if (!heard) { heard = true; log('speech_first_audio', { id, provider: 'voicestudio', ms: Date.now() - t0 }); if (local && !local.ok) checkLocal(); } // working again: refresh the panel's status
@@ -185,7 +197,7 @@ export function createSpeaker({ emit, onProblem = () => {}, log = () => {}, Fish
         finish();
       },
     });
-    log('speech_start', { id, provider: 'voicestudio', voice: localVoice });
+    log('speech_start', { id, provider: 'voicestudio', voice: activeVoice });
     v.open?.(); // opening costs a moment: do it while the model thinks
     current = me;
     return me;
@@ -292,7 +304,7 @@ export function createSpeaker({ emit, onProblem = () => {}, log = () => {}, Fish
     get provider() { return localOn ? 'voicestudio' : P.id; },
     // The VoiceStudio voice (a saved profile id; null: the engine's default voice).
     setLocalVoice(v) { localVoice = typeof v === 'string' && v ? v : null; },
-    get localVoice() { return localVoice; },
+    get localVoice() { return effectiveLocalVoice(); },
     get local() { return local; },
     checkLocal,
     get ready() { return beats.size + beatPhrases.filter((p) => !beats.has(p) && shipped()?.has(p)).length; },

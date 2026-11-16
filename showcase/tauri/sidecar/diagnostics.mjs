@@ -67,8 +67,8 @@ const show = (v) => (typeof v === 'string' ? v : JSON.stringify(v, null, 2));
 
 /** The report as text: a header, then each section ([title, text or object]) in order, all of it redacted. */
 export function buildReport({ now = new Date(), version = '0.0.0', sections = [] }, scrub = {}) {
-  let out = `Roamies diagnostics\nMade ${now.toISOString()} by Roamies ${version}.\n`
-    + 'Send this file to the Roamies developer: attach it to a GitHub issue (github.com/KenKaiii/Roamies/issues) or send it directly.\n'
+  let out = `AI Assistant diagnostics\nMade ${now.toISOString()} by AI Assistant ${version}.\n`
+    + 'Send this file with an issue report or to the developer.\n'
     + 'Keys, tokens, emails, your home folder and user name have been removed. Look it over before sending if you like.\n';
   for (const [title, body] of sections) {
     const text = body == null || body === '' ? '(none)' : show(body);
@@ -109,7 +109,7 @@ export async function reportDir(home = os.homedir()) {
   return home;
 }
 
-export const reportName = (now = new Date()) => `roamies-diagnostics-${now.toISOString().slice(0, 19).replace(/[T:]/g, '-')}.log`;
+export const reportName = (now = new Date()) => `ai_assistant-diagnostics-${now.toISOString().slice(0, 19).replace(/[T:]/g, '-')}.log`;
 
 /** Shows the saved file in Finder, Explorer or the file manager. */
 export function reveal(file) {

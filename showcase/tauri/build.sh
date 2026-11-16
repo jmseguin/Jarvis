@@ -20,12 +20,12 @@ case "$TRIPLE" in
     mkdir -p src-tauri/binaries
     for h in voice hands; do
       cargo build --release --locked --manifest-path "src-tauri/$h-win/Cargo.toml" --target "$TRIPLE"
-      cp "src-tauri/$h-win/target/$TRIPLE/release/roamies-$h.exe" "src-tauri/binaries/roamies-$h-$TRIPLE.exe"
+      cp "src-tauri/$h-win/target/$TRIPLE/release/ai_assistant-$h.exe" "src-tauri/binaries/ai_assistant-$h-$TRIPLE.exe"
     done ;;
   *-linux-*)
     mkdir -p src-tauri/binaries
     cargo build --release --locked --manifest-path src-tauri/voice-win/Cargo.toml --target "$TRIPLE"
-    cp "src-tauri/voice-win/target/$TRIPLE/release/roamies-voice" "src-tauri/binaries/roamies-voice-$TRIPLE" ;;
+    cp "src-tauri/voice-win/target/$TRIPLE/release/ai_assistant-voice" "src-tauri/binaries/ai_assistant-voice-$TRIPLE" ;;
 esac
 cd src-tauri
 # macOS signing: APPLE_SIGNING_IDENTITY if set, else the first Developer ID Application certificate in

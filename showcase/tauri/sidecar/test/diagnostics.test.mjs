@@ -51,12 +51,12 @@ assert.ok(act[1][1].startsWith('2026-11-10 event'), 'the newest day comes whole'
 
 // The report: a header saying where to send it, each section, all of it scrubbed.
 const report = buildReport({ now: new Date('2026-11-11T09:30:00Z'), version: '1.2.3', sections: [['System', { platform: 'win32' }], ['Voice helper log', '/Users/jane/x sk-ant-api03-AbCdEfGhIjKlMnOpQrSt'], ['Empty', '']] }, who);
-assert.match(report, /^Roamies diagnostics\nMade 2026-11-11T09:30:00\.000Z by Roamies 1\.2\.3\./);
-assert.match(report, /github\.com\/KenKaiii\/Roamies\/issues/);
+assert.match(report, /^AI Assistant diagnostics\nMade 2026-11-11T09:30:00\.000Z by AI Assistant 1\.2\.3\./);
+assert.match(report, /Send this file/);
 assert.match(report, /-------- System -+\n\{\n {2}"platform": "win32"\n\}/);
 assert.match(report, /-------- Voice helper log -+\n~\/x <key>\n/);
 assert.match(report, /-------- Empty -+\n\(none\)/);
 assert.ok(!report.includes('jane') && !report.includes('AbCdEf'));
-assert.equal(reportName(new Date('2026-11-11T09:30:05Z')), 'roamies-diagnostics-2026-11-11-09-30-05.log');
+assert.equal(reportName(new Date('2026-11-11T09:30:05Z')), 'ai_assistant-diagnostics-2026-11-11-09-30-05.log');
 await fs.rm(dir, { recursive: true, force: true });
 console.log('diagnostics tests: passed');

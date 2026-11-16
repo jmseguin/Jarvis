@@ -197,11 +197,11 @@
     const u = state.update, b = $('head-update'), v = u.available;
     const fresh = u.result?.ok && Date.now() - (u.result.at ?? 0) < FRESH;
     const [label, aria, kind, off] =
-      u.done ? ['Done', `Roamies ${u.done} is installed. Restarting`, 'ghost', true]
-      : u.installing ? ['Updating…', `Installing Roamies ${v}`, 'ghost', true]
-      : v ? (u.page ? [`Get ${v}`, `Open the download page for Roamies ${v}`, 'primary', false] : [`Update to ${v}`, `Install Roamies ${v} and restart`, 'primary', false])
+      u.done ? ['Done', `AI Assistant ${u.done} is installed. Restarting`, 'ghost', true]
+      : u.installing ? ['Updating…', `Installing AI Assistant ${v}`, 'ghost', true]
+      : v ? (u.page ? [`Get ${v}`, `Open the download page for AI Assistant ${v}`, 'primary', false] : [`Update to ${v}`, `Install AI Assistant ${v} and restart`, 'primary', false])
       : u.checking ? ['Checking…', 'Checking for updates', 'ghost', true]
-      : fresh ? ['Up to date', `Roamies ${state.version} is up to date`, 'ghost', true]
+      : fresh ? ['Up to date', `AI Assistant ${state.version} is up to date`, 'ghost', true]
       : u.result ? ['Check again', "Couldn't check for updates. Check again", 'ghost', false]
       : ['Check for updates', 'Check for updates', 'ghost', false];
     b.hidden = false; b.textContent = label; b.disabled = off;
@@ -215,10 +215,10 @@
   // Quit asks first: the first press turns it into Confirm for 4 s, the second quits.
   const quitB = $('head-quit');
   let quitTimer = 0;
-  const unarmQuit = () => { clearTimeout(quitTimer); quitB.setAttribute('aria-pressed', 'false'); quitB.setAttribute('aria-label', 'Quit Roamies'); };
+  const unarmQuit = () => { clearTimeout(quitTimer); quitB.setAttribute('aria-pressed', 'false'); quitB.setAttribute('aria-label', 'Quit AI Assistant'); };
   quitB.addEventListener('click', () => {
     if (quitB.getAttribute('aria-pressed') === 'true') { unarmQuit(); act('quit'); return; }
-    quitB.setAttribute('aria-pressed', 'true'); quitB.setAttribute('aria-label', 'Confirm: quit Roamies');
+    quitB.setAttribute('aria-pressed', 'true'); quitB.setAttribute('aria-label', 'Confirm: quit AI Assistant');
     quitTimer = setTimeout(unarmQuit, 4000);
   });
   function mark(page, why) {
@@ -314,7 +314,7 @@
     if (seen.look && state.look !== seen.look) { avatar.setLook(state.look); avatar.act('wave'); quip(QUIPS[state.look] ?? 'Hi!'); }
     else avatar.setLook(state.look);
     avatar.setForm(state.size);
-    if (state.update.available && state.update.available !== seen.update && seen.look) { avatar.act('hype'); quip(`Roamies ${state.update.available} is here!`); }
+    if (state.update.available && state.update.available !== seen.update && seen.look) { avatar.act('hype'); quip(`AI Assistant ${state.update.available} is here!`); }
     seen.look = state.look; seen.update = state.update.available;
   }
 
@@ -482,7 +482,7 @@
         el('span', { className: 'acct-name' }, p.label, p.on ? el('span', { className: 'led on', role: 'img', 'aria-label': p.method === 'local' ? 'Connected' : 'Signed in', 'data-tip': p.method === 'local' ? 'Connected' : 'Signed in' }) : null),
         p.on ? el('span', { className: 'row-btns' },
           p.key ? changeKey(p) : null,
-          ui.key === p.id ? null : armed(p.signedIn && !p.keySaved ? 'Sign out' : 'Remove', 'Confirm', `signout:${p.id}`, `signout:${p.id}`, `Remove ${p.label} from Roamies`))
+          ui.key === p.id ? null : armed(p.signedIn && !p.keySaved ? 'Sign out' : 'Remove', 'Confirm', `signout:${p.id}`, `signout:${p.id}`, `Remove ${p.label} from AI Assistant`))
           : state.loggingIn === p.id ? el('span', { className: 'waiting', textContent: 'Signing in…' })
           : p.method === 'local' ? connect(p)
           : p.method === 'oauth' ? (p.key ? el('span', { className: 'links' }, signIn(p), addKey(p)) : signIn(p))
@@ -540,14 +540,34 @@
       el('div', { className: 'setting' },
         el('span', {}, 'VoiceStudio', el('small', { className: vs.ok || vs.checking ? '' : 'bad', textContent: status, role: vs.ok || vs.checking ? null : 'alert' })),
         el('span', { className: 'row-btns' }, link('Check again', () => act('voicestudio_check'), { k: 'voicestudio_check', aria: 'Check VoiceStudio again' }))),
-      vs.ok ? el('div', { className: 'reveal', 'data-anim': 'studio-voice' },
-        el('p', { className: 'sub', textContent: `Voice for ${state.name}` }),
-        el('span', { className: 'px field select' },
-          el('select', { 'aria-label': 'VoiceStudio voice', 'data-k': 'studiovoice', on: { change: (e) => act(`studiovoice:${e.target.value}`) } },
-            el('option', { value: 'default', textContent: 'Engine default', selected: !vs.voice || !voices.some((x) => x.id === vs.voice) }),
-            voices.map((x) => el('option', { value: x.id, textContent: x.name, selected: x.id === vs.voice })))),
-        voices.length ? null : el('p', { className: 'why', textContent: 'Save a voice in VoiceStudio (clone or design one) to pick it here.' }),
-      ) : null,
+      vs.ok ? (() => {
+        const savedVoice = vs.voice && voices.some((x) => x.id === vs.voice) ? vs.voice : 'default';
+        if (ui.studioLastSaved !== savedVoice) {
+          ui.studioLastSaved = savedVoice;
+          ui.studioPick = savedVoice;
+        }
+        const pick = ui.studioPick ?? savedVoice;
+        const playBtn = el('button', {
+          className: 'px play-btn', type: 'button', 'data-k': 'studiovoice-test',
+          'aria-label': 'Test voice', title: 'Test voice',
+          on: { click: () => act(`studiovoice_test:${pick}`) },
+        });
+        playBtn.innerHTML = '<svg viewBox="0 0 12 12" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M3 2l7 4-7 4V2z"/></svg>';
+        return el('div', { className: 'reveal', 'data-anim': 'studio-voice' },
+          el('p', { className: 'sub', textContent: `Voice for ${state.name}` }),
+          el('div', { className: 'row-btns' },
+            el('span', { className: 'px field select' },
+              el('select', {
+                'aria-label': 'VoiceStudio voice', 'data-k': 'studiovoice',
+                on: { change: (e) => { ui.studioPick = e.target.value; render('studiovoice'); } },
+              },
+              el('option', { value: 'default', textContent: 'Engine default', selected: pick === 'default' }),
+              voices.map((x) => el('option', { value: x.id, textContent: x.name, selected: x.id === pick })))),
+            playBtn,
+            btn('Save', () => act(`studiovoice:${pick}`), { kind: 'primary', k: 'studiovoice-save', disabled: pick === savedVoice })),
+          voices.length ? null : el('p', { className: 'why', textContent: 'Save a voice in VoiceStudio (clone or design one) to pick it here.' }),
+        );
+      })() : null,
     ];
   }
   const TTS_NAMES = { fish: 'Fish Audio', gemini: 'Gemini', voicestudio: 'VoiceStudio' };
@@ -610,6 +630,31 @@
             builtin: 'Always uses the built-in Mac mic for wake-word listening.',
             bluetooth: 'Always uses the default Bluetooth headset mic for wake-word listening (keeps headset in call mode).',
           })) : null) : null,
+      v && v.mac ? (() => {
+        const inputs = v.audioDevices?.inputs ?? [];
+        const outputs = v.audioDevices?.outputs ?? [];
+        const curIn = v.inputDevice || '';
+        const curOut = v.outputDevice || '';
+        const hasSavedIn = !curIn || inputs.some((d) => d.uid === curIn);
+        const hasSavedOut = !curOut || outputs.some((d) => d.uid === curOut);
+        const devLabel = (d) => `${d.name}${d.builtin ? ' (Built-in)' : ''}${d.default ? ' · macOS default' : ''}`;
+        return group('Audio devices', 'Lock AI Assistant to a specific mic and speaker so plugging in headphones or a projector does not switch them.',
+          link('Refresh', () => act('refreshdevices'), { k: 'refreshdevices', aria: 'Refresh audio devices' }),
+          el('div', { className: 'setting' },
+            el('span', {}, 'Microphone', el('small', { textContent: curIn ? 'Locked to selected input device' : 'Follows macOS system default input' })),
+            el('span', { className: 'px field select' },
+              el('select', { 'aria-label': 'Microphone override', 'data-k': 'inputdev', on: { change: (e) => act(`inputdev:${e.target.value}`) } },
+                el('option', { value: '', textContent: 'System default', selected: curIn === '' }),
+                !hasSavedIn ? el('option', { value: curIn, textContent: `Saved device (disconnected)`, selected: true }) : null,
+                inputs.map((d) => el('option', { value: d.uid, textContent: devLabel(d), selected: d.uid === curIn }))))),
+          el('div', { className: 'setting' },
+            el('span', {}, 'Speaker', el('small', { textContent: curOut ? 'Locked to selected output device' : 'Follows macOS system default output' })),
+            el('span', { className: 'px field select' },
+              el('select', { 'aria-label': 'Speaker override', 'data-k': 'outputdev', on: { change: (e) => act(`outputdev:${e.target.value}`) } },
+                el('option', { value: '', textContent: 'System default', selected: curOut === '' }),
+                !hasSavedOut ? el('option', { value: curOut, textContent: `Saved device (disconnected)`, selected: true }) : null,
+                outputs.map((d) => el('option', { value: d.uid, textContent: devLabel(d), selected: d.uid === curOut }))))));
+      })() : null,
     ];
   }
   // Wayland: the commands to bind to keys in the desktop's settings (no app may hold its own shortcuts there).
@@ -617,9 +662,16 @@
   const BIND_ROWS = [['talk', 'Talk to me'], ['summon', 'Show or hide me'], ['ask', 'Ask me'], ['list', 'Your list'], ['panel', 'This panel']];
   function behaviorPage() {
     const b = state.bind;
+    const nameInput = el('input', { type: 'text', value: state.userName || '', placeholder: state.systemUserName ? `System (${state.systemUserName})` : 'Your name', 'aria-label': 'Your name override', 'data-k': 'username-input', autocomplete: 'off', spellcheck: false });
+    const saveName = () => act(`username:${nameInput.value.trim()}`);
+    nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveName(); } });
     return [
       group('Behavior', 'What I may do, and when I start.', null,
+        el('div', { className: 'setting' },
+          el('span', {}, 'Your name', el('small', { textContent: state.userName ? `Overridden to "${state.userName}" (system: ${state.systemUserName || 'default'})` : `Using system name (${state.systemUserName || 'default'})` })),
+          el('span', { className: 'row-btns' }, el('span', { className: 'px field' }, nameInput), btn('Save', saveName, { kind: 'primary', k: 'username-save' }), state.userName ? link('Reset', () => { nameInput.value = ''; act('username:'); }, { k: 'username-reset' }) : null)),
         toggle('Sound effects', null, state.sound, () => act('sound'), 'sound'),
+        toggle('Follow-up questions', 'Ask helpful follow-up questions at the end of replies', state.followUpQuestions !== false, () => act('followups'), 'followups'),
         state.brief ? toggle('Morning briefing', 'The first time you talk to me each day, I start with what’s due.', state.brief.on, () => act('morningbrief'), 'morningbrief') : null,
         state.brief?.on && state.brief.canTodoist ? toggle('Include Todoist', 'I read your Todoist window (opening it if needed). Stay signed in.', state.brief.todoist, () => act('brieftodoist'), 'brieftodoist') : null,
         state.focus ? el('div', { className: 'setting' },
@@ -631,17 +683,10 @@
           state.sync.dir ? [state.sync.paused ? link('Sync anyway', () => act('syncallow'), { k: 'syncallow', danger: true, aria: 'Sync anyway, removing those items on every computer' }) : null,
             link('Stop', () => act('syncstop'), { k: 'syncstop', aria: 'Stop syncing memory' })] : link('Set up', () => act('syncsetup'), { k: 'syncsetup', aria: 'Set up memory sync' })) : null,
         toggle('Allow file edits and commands', 'Change files and run commands', state.actions, () => act('actions'), 'actions'),
-        state.appControl ? toggle('Confirm before pressing Enter', 'Ask before submitting commands or prompts in apps and terminals.', state.appControl.confirmBeforeEnter !== false, () => act('confirm_enter'), 'confirm_enter') : null,
-        state.appControl ? el('div', { className: 'setting' },
-          el('span', {}, 'Approved apps',
-            el('small', { textContent: [...(state.appControl.approved ?? []), ...(state.appControl.session ?? [])].map((x) => `${x.name} (${x.mode === 'session' ? 'session' : 'always'})`).join(', ') || 'None yet — approve here or by voice/text.' })),
-          el('span', { className: 'row-btns' },
-            ...[...(state.appControl.approved ?? []), ...(state.appControl.session ?? [])].map((x) => link(`Remove ${x.name}`, () => act(`app_revoke:${x.key}`), { k: `app_revoke_${x.key}`, danger: true })),
-            ...['iTerm2', 'Headr', 'Antigravity'].filter((n) => ![...(state.appControl.approved ?? []), ...(state.appControl.session ?? [])].some((x) => x.name.toLowerCase() === n.toLowerCase())).map((n) => link(`+ ${n}`, () => act(`app_approve:${n}`), { k: `app_approve_${n}` })))) : null,
         state.voice ? toggle('Auto-listen', state.voice.on ? 'Mic opens when I ask you something.' : 'Needs Voice control on', state.voice.autoListen, () => act('autolisten'), 'autolisten') : null,
         state.voice ? toggle('Listen after reminders', state.voice.on ? 'Mic opens after a reminder, so you can say “snooze 10 minutes”.' : 'Needs Voice control on', state.voice.snoozeListen, () => act('snoozelisten'), 'snoozelisten') : null,
-        state.voice?.mac ? toggle('Wake word', state.voice.on ? `Say “Hey ${state.voice.wakeName || 'Roamies'}” to talk. Mic stays on.` : 'Needs Voice control on', state.voice.wakeWord, () => act('wakeword'), 'wakeword') : null,
-        state.voice?.mac ? el('div', { className: 'setting' }, el('span', {}, 'Wake word name', el('small', { textContent: `Hey ${state.voice.wakeName || 'Roamies'}` })),
+        state.voice?.mac ? toggle('Wake word', state.voice.on ? `Say “Hey ${state.voice.wakeName || 'AI Assistant'}” to talk. Mic stays on.` : 'Needs Voice control on', state.voice.wakeWord, () => act('wakeword'), 'wakeword') : null,
+        state.voice?.mac ? el('div', { className: 'setting' }, el('span', {}, 'Wake word name', el('small', { textContent: `Hey ${state.voice.wakeName || 'AI Assistant'}` })),
           link('Change', () => act('wakename'), { k: 'wakename', aria: 'Change the wake word name' })) : null,
         state.login ? toggle('Open at login', null, state.login.on, () => act('login'), 'login') : null),
       b ? group('Shortcuts', 'Add these as custom shortcuts in your keyboard settings, with any keys you like.', null,
@@ -662,7 +707,7 @@
     if (!ken) {
       const cv = el('canvas', { 'aria-hidden': 'true' });
       const r = liveRoamie(cv, 100, 74, { look: 'ken', y: 0.55 });
-      const card = el('div', { className: 'maker' }, cv, el('span', {}, 'Ken Kai', el('small', { textContent: 'Creator of Roamies' })));
+      const card = el('div', { className: 'maker' }, cv, el('span', {}, 'Jean-Marc Seguin', el('small', { textContent: 'AI Assistant · Visual aspects by Ken Kai' })));
       let waved = 0;
       card.addEventListener('pointerenter', () => { if (r && Date.now() - waved > 3500) { waved = Date.now(); r.act('wave'); } });
       r?.appear('crt');
@@ -722,8 +767,128 @@
     ];
   }
 
+  function appsPage() {
+    const ac = state.appControl ?? { confirmBeforeEnter: true, uiTrustLevel: 1, uiTrustLevels: [], approved: [], session: [] };
+    const trustLevel = Number.isInteger(ac.uiTrustLevel) ? ac.uiTrustLevel : 1;
+    const levels = (ac.uiTrustLevels && ac.uiTrustLevels.length)
+      ? ac.uiTrustLevels
+      : [
+          { level: 0, label: 'Off', description: 'macOS UI Service is completely disabled.' },
+          { level: 1, label: 'Observe Only', description: 'Read desktop, windows, AX tree, and menus. No clicks or typing.' },
+          { level: 2, label: 'Assisted', description: 'Read freely; every UI action asks for confirmation.' },
+          { level: 3, label: 'App-Scoped', description: 'Read freely; act in approved apps without re-asking (except blocked apps).' },
+          { level: 4, label: 'Full Desktop', description: 'Act in any non-blocked app or desktop without per-action prompts.' },
+        ];
+    const currentLevel = levels.find((l) => l.level === trustLevel) ?? levels[1];
+    const all = [...(ac.approved ?? []), ...(ac.session ?? [])];
+    const addInput = el('input', { type: 'text', placeholder: 'App name (e.g. Herdr, Cursor, Claude)', 'aria-label': 'Application name', 'data-k': 'app-add-input', autocomplete: 'off', spellcheck: false });
+    const submitAdd = () => {
+      const name = addInput.value.trim();
+      if (!name) return;
+      addInput.value = '';
+      act(`app_approve:${name}`);
+    };
+    addInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submitAdd(); } });
+    return [
+      group('macOS UI Trust Level', 'Controls how much Jarvis can inspect and interact with standard macOS UI elements.', null,
+        el('div', { className: 'setting' },
+          el('span', {}, `Level ${currentLevel.level}: ${currentLevel.label}`, el('small', { textContent: currentLevel.desc ?? currentLevel.description })),
+          btn('Accessibility Settings', () => act('ui_open_ax'), { k: 'ui-open-ax' })),
+        picks('macOS UI Trust Level', levels.map((l) => [l.level, `${l.level}: ${l.label}`]), trustLevel, (lvl) => act(`uitrust:${lvl}`), 'uitrust')),
+      group('App Control', 'Choose which apps and terminals can receive commands, and whether Enter asks first.', null,
+        toggle('Confirm before pressing Enter', 'Ask before submitting commands or prompts in apps and terminals.', ac.confirmBeforeEnter !== false, () => act('confirm_enter'), 'confirm_enter'),
+        el('div', { className: 'setting' },
+          el('span', {}, 'Add application', el('small', { textContent: 'Approve any app by name, or ask by voice/text.' })),
+          el('span', { className: 'row-btns' }, el('span', { className: 'px field' }, addInput), btn('Add', submitAdd, { kind: 'primary', k: 'app-add-btn' })))),
+      group('Approved apps', all.length ? `${all.length} approved` : 'None yet. Add an application above or approve when asked.', null,
+        all.length ? el('ul', { className: 'list' }, all.map((x) => el('li', { className: 'item' },
+          el('span', { className: 'mark', 'aria-hidden': 'true' }),
+          el('span', { className: 'text' }, x.name, el('small', { textContent: x.mode === 'session' ? 'This session' : 'Always allowed' })),
+          link('Remove', () => act(`app_revoke:${x.key}`), { k: `app_revoke_${x.key}`, danger: true, aria: `Remove ${x.name}` })))) : null),
+    ];
+  }
+
+  function mcpPage() {
+    const clients = state.mcpClients ?? [];
+    const cards = clients.map((c) => {
+      const editing = ui.mcpEdit === c.id;
+      const errMsg = el('p', { className: 'mcp-err', hidden: true });
+      const cfgArea = el('textarea', {
+        rows: 4,
+        'aria-label': `${c.name} configuration JSON`,
+        'data-k': `mcp-cfg-${c.id}`,
+        spellcheck: false,
+        value: JSON.stringify(c.config ?? {}, null, 2),
+      });
+      const saveEdit = () => {
+        try {
+          const parsed = JSON.parse(cfgArea.value.trim() || '{}');
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Config must be a JSON object.');
+          errMsg.hidden = true;
+          ui.mcpEdit = null;
+          act(`mcp_save:${c.id}:${encodeURIComponent(JSON.stringify(parsed))}`);
+        } catch (e) {
+          errMsg.textContent = e.message || 'Invalid JSON';
+          errMsg.hidden = false;
+        }
+      };
+      return el('div', { className: 'mcp-card' },
+        el('div', { className: 'mcp-head' },
+          el('div', { className: 'mcp-info' },
+            el('span', { className: 'mcp-title', textContent: c.name }),
+            c.description ? el('span', { className: 'mcp-desc', textContent: c.description }) : null,
+            c.tools?.length ? el('span', { className: 'mcp-tools', textContent: `Tools: ${c.tools.join(', ')}` }) : null),
+          el('div', { className: 'mcp-actions' },
+            link(editing ? 'Close' : 'Edit', () => { ui.mcpEdit = editing ? null : c.id; render(); }, { k: `mcp-edit-${c.id}` }),
+            c.type === 'custom' ? link('Remove', () => act(`mcp_remove:${c.id}`), { k: `mcp-del-${c.id}`, danger: true, aria: `Remove ${c.name}` }) : null,
+            el('button', {
+              className: 'px switch', type: 'button', role: 'switch',
+              'aria-checked': String(c.enabled !== false),
+              'aria-label': `Enable ${c.name}`,
+              'data-k': `mcp-tog-${c.id}`,
+              on: { click: () => act(`mcp_toggle:${c.id}`) },
+            }))),
+        editing ? el('div', { className: 'mcp-edit' },
+          el('span', { className: 'px field' }, cfgArea),
+          errMsg,
+          el('div', { className: 'row-btns' },
+            btn('Save', saveEdit, { kind: 'primary', k: `mcp-save-${c.id}` }),
+            btn('Cancel', () => { ui.mcpEdit = null; render(); }, { k: `mcp-cancel-${c.id}` }))) : null);
+    });
+
+    const addName = el('input', { type: 'text', placeholder: 'Client name (e.g. filesystem)', 'aria-label': 'MCP client name', 'data-k': 'mcp-add-name', autocomplete: 'off', spellcheck: false });
+    const addCfg = el('textarea', { rows: 3, placeholder: '{"command": "npx", "args": ["-y", "..."]}', 'aria-label': 'MCP client configuration JSON', 'data-k': 'mcp-add-cfg', spellcheck: false, value: '{}' });
+    const addErr = el('p', { className: 'mcp-err', hidden: true });
+    const submitAdd = () => {
+      const name = addName.value.trim();
+      if (!name) { addErr.textContent = 'Enter a client name.'; addErr.hidden = false; return; }
+      try {
+        const parsed = JSON.parse(addCfg.value.trim() || '{}');
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Config must be a JSON object.');
+        addErr.hidden = true;
+        addName.value = '';
+        addCfg.value = '{}';
+        act(`mcp_add:${encodeURIComponent(JSON.stringify({ name, config: parsed }))}`);
+      } catch (e) {
+        addErr.textContent = e.message || 'Invalid JSON';
+        addErr.hidden = false;
+      }
+    };
+
+    return [
+      group('MCP Clients', 'Enable, disable, or edit MCP tool integrations available to your assistant.', clients.length,
+        clients.length ? el('div', {}, ...cards) : el('p', { className: 'mcp-desc', textContent: 'No MCP clients configured.' })),
+      group('Add MCP Client', 'Save a custom MCP client configuration for future tool integrations.', null,
+        el('div', { className: 'mcp-edit' },
+          el('span', { className: 'px field' }, addName),
+          el('span', { className: 'px field' }, addCfg),
+          addErr,
+          el('div', { className: 'row-btns' }, btn('Add', submitAdd, { kind: 'primary', k: 'mcp-add-btn' })))),
+    ];
+  }
+
   // ---------------------------------------------------------------- render
-  const PANES = { home, memory, model: modelPage, appearance: appearancePage, voice: voicePage, behavior: behaviorPage, about: aboutPage, whatsnew: whatsNewPage };
+  const PANES = { home, memory, model: modelPage, appearance: appearancePage, voice: voicePage, behavior: behaviorPage, apps: appsPage, mcp: mcpPage, about: aboutPage, whatsnew: whatsNewPage };
   // focusKey: what to focus after (a data-k, or an element id); otherwise whatever had focus keeps it.
   function render(focusKey, animate = false) {
     if (!state) return;

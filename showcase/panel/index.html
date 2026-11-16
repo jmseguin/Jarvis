@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Roamies</title>
+<title>AI Assistant</title>
 <link rel="stylesheet" href="../onboarding/onboarding.css">
 <link rel="stylesheet" href="panel.css">
 </head>
@@ -14,14 +14,14 @@
   <div class="head-text">
     <div class="who">
       <span class="led" id="led" aria-hidden="true"></span>
-      <h1 id="title">Roamies</h1>
+      <h1 id="title">AI Assistant</h1>
       <span class="ver" id="ver"></span>
       <!-- Updates, on every page: Check for updates, then Update to x (it installs and restarts), then Done. -->
       <button class="px btn ghost mini" type="button" id="head-update" hidden></button>
       <!-- Quit, at the end of the row: the first press turns it into Confirm for a few seconds. -->
-      <button class="link danger arm head-quit" type="button" id="head-quit" aria-pressed="false" aria-label="Quit Roamies"><span class="no" aria-hidden="true">Quit</span><span class="yes" aria-hidden="true">Confirm</span></button>
+      <button class="link danger arm head-quit" type="button" id="head-quit" aria-pressed="false" aria-label="Quit AI Assistant"><span class="no" aria-hidden="true">Quit</span><span class="yes" aria-hidden="true">Confirm</span></button>
     </div>
-    <p class="by" id="by">By Ken Kai</p>
+    <p class="by" id="by">By Jean-Marc Seguin, Visual aspects by Ken Kai</p>
     <!-- What it's doing and the model, for screen readers; on screen the LED shows it. -->
     <p class="sr-only" id="now" role="status" aria-live="polite"></p>
     <p class="saying" id="saying" aria-hidden="true"></p>
@@ -41,6 +41,8 @@
       <li><button class="px navi" type="button" id="nav-appearance" data-page="appearance" aria-controls="pane-appearance">Appearance<span class="dot" aria-hidden="true"></span></button></li>
       <li><button class="px navi" type="button" id="nav-voice" data-page="voice" aria-controls="pane-voice">Voice<span class="dot" aria-hidden="true"></span></button></li>
       <li><button class="px navi" type="button" id="nav-behavior" data-page="behavior" aria-controls="pane-behavior">Behavior<span class="dot" aria-hidden="true"></span></button></li>
+      <li><button class="px navi" type="button" id="nav-apps" data-page="apps" aria-controls="pane-apps">Apps<span class="dot" aria-hidden="true"></span></button></li>
+      <li><button class="px navi" type="button" id="nav-mcp" data-page="mcp" aria-controls="pane-mcp">MCP<span class="dot" aria-hidden="true"></span></button></li>
       <li><button class="px navi" type="button" id="nav-about" data-page="about" aria-controls="pane-about">About<span class="dot" aria-hidden="true"></span></button></li>
       <li><button class="px navi" type="button" id="nav-whatsnew" data-page="whatsnew" aria-controls="pane-whatsnew">What's new<span class="dot" aria-hidden="true"></span></button></li>
     </ul>
@@ -52,6 +54,8 @@
     <section class="pane" id="pane-appearance" aria-labelledby="nav-appearance" hidden></section>
     <section class="pane" id="pane-voice" aria-labelledby="nav-voice" hidden></section>
     <section class="pane" id="pane-behavior" aria-labelledby="nav-behavior" hidden></section>
+    <section class="pane" id="pane-apps" aria-labelledby="nav-apps" hidden></section>
+    <section class="pane" id="pane-mcp" aria-labelledby="nav-mcp" hidden></section>
     <section class="pane" id="pane-about" aria-labelledby="nav-about" hidden></section>
     <section class="pane" id="pane-whatsnew" aria-labelledby="nav-whatsnew" hidden></section>
   </main>

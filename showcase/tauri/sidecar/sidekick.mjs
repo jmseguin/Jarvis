@@ -35,6 +35,7 @@ import { KEY_NAME as SYNC_KEY, MIN_PASSPHRASE, checkFolder, folderReady, merge a
 import { EMOTES, EchoFilter, ReplyStream } from './reply.mjs';
 import { downloadModel, isReady, modelDir, sizeLabel, totalBytes } from './voicemodel.mjs';
 import { copyText, createTools, expand, fitImage, imageBlock, winOpen } from './tools.mjs';
+import { BUILTIN_MCP_CLIENTS, createJarvisTools } from '../../../tools/index.mjs';
 import { describeMarks } from './marks.mjs';
 import { faviconFor } from './draw.mjs';
 import { QUESTIONS, openNote, answerTurn, wantsSkip, endsChat, splitTurn, plain, stripNote, tourBeats, goalFrom, showcaseBeats } from './intro.mjs';
@@ -101,8 +102,8 @@ const DEFAULT_KEYS = process.platform === 'win32'
   ? { talk: ['control', 'option'], summon: 'Control+Shift+KeyS', snap: 'Control+Shift+KeyA', list: 'Control+Shift+KeyL' }
   : { talk: ['control', 'option'], summon: 'Control+Alt+KeyS', snap: 'Control+Alt+KeyA', list: 'Control+Alt+KeyL' };
 const DEFAULTS = {
-  provider: null, model: null, sound: true, allowActions: false, approvedApps: {}, confirmBeforeEnter: true, voice: true,
-  onboarded: false, onboardStep: 0, filesAsked: false, keys: DEFAULT_KEYS, muteWhileTalking: true, autoListen: false, wakeWord: false, setupVersion: 0, size: 'default', look: 'classic', introDone: false,
+  provider: null, model: null, userName: '', sound: true, allowActions: false, approvedApps: {}, appsSeeded: false, confirmBeforeEnter: true, uiTrustLevel: 1, mcpClients: {}, voice: true,
+  onboarded: false, onboardStep: 0, filesAsked: false, keys: DEFAULT_KEYS, muteWhileTalking: true, autoListen: false, wakeWord: false, followUpQuestions: true, inputDevice: '', outputDevice: '', setupVersion: 0, size: 'default', look: 'classic', introDone: false,
   replies: 'text', // 'voice': spoken (with Fish Audio or Gemini) as well as shown
   tts: 'fish', // which one speaks: 'fish' (Fish Audio), 'gemini' or 'voicestudio' (the VoiceStudio app on this computer)
   studioVoices: {}, // look → its VoiceStudio voice (a saved profile id; none: the selected engine's default voice)
@@ -285,7 +286,7 @@ const keyWords = (accel) => accel.replace(/Key|Digit/g, '').split('+')
 const TRAY = MAC ? 'menu bar' : 'system tray';
 // Where settings live now: the panel that opens from the icon (the menu is just the basics). Linux trays don't
 // report clicks, so there it's the icon's menu, or starting Roamies again (which also works with no tray at all).
-const PANEL = LINUX ? 'the panel (Open Panel… in my tray icon\'s menu, or open Roamies again from your apps)' : MAC ? `the panel (click my ${TRAY} icon)` : 'the panel (click my icon by the clock, behind the ^ arrow if it isn\'t showing, or open Roamies again from the Start menu)';
+const PANEL = LINUX ? 'the panel (Open Panel… in my tray icon\'s menu, or open AI Assistant again from your apps)' : MAC ? `the panel (click my ${TRAY} icon)` : 'the panel (click my icon by the clock, behind the ^ arrow if it isn\'t showing, or open AI Assistant again from the Start menu)';
 // What the shortcuts are on Wayland: whatever keys they bound to these commands in their desktop's settings.
 // ROAMIES_LAUNCH: how this copy is started (the app says: plain roamies for a package, the AppImage's path for one).
 const LAUNCH = process.env.ROAMIES_LAUNCH || 'roamies';
@@ -353,7 +354,7 @@ function ensureModel() {
 // Which of the provider's stored credentials this model uses (gemini-api, kimi-code, the ChatGPT plan before an OpenAI key…).
 const credsFor = (provider = config.provider, model = config.model) => auth.resolveCredentials(provider, { storageKeys: getAuthStorageKeys(provider, model) });
 
-const userName = (() => {
+const systemUserName = (() => {
   try {
     if (process.platform === 'darwin') {
       const full = String(execFileSync('id', ['-F'])).trim();
@@ -362,12 +363,27 @@ const userName = (() => {
   } catch {}
   return os.userInfo().username;
 })();
+const getUserName = () => (typeof config.userName === 'string' && config.userName.trim()) ? config.userName.trim() : systemUserName;
+let userName = getUserName();
 
 // ---------- tools ----------
 // The open request's voice, if replies are spoken: draw's beat lines are said on it, in order with the reply.
 let turnVoice = null;
 const sessionApprovedApps = {};
+const DEFAULT_APPROVED_APPS = ['iTerm2', 'Herdr', 'Antigravity'];
+if (!config.appsSeeded) {
+  if (!config.approvedApps || typeof config.approvedApps !== 'object') config.approvedApps = {};
+  if (!Object.keys(config.approvedApps).length) {
+    for (const name of DEFAULT_APPROVED_APPS) {
+      const key = normalizeAppKey(name);
+      config.approvedApps[key] = { key, name, bundleId: '', mode: 'always' };
+    }
+  }
+  config.appsSeeded = true;
+  saveConfig();
+}
 const appControl = {
+  snapshot: () => appControl.get(),
   get: () => ({
     approvedApps: config.approvedApps && typeof config.approvedApps === 'object' ? config.approvedApps : {},
     sessionApps: sessionApprovedApps,
@@ -447,6 +463,52 @@ const agents = createAgents({
   },
 });
 tools.push(...agents.tools);
+const builtinMcpById = new Map(BUILTIN_MCP_CLIENTS.map((c) => [c.id, c]));
+const isMcpEnabled = (id) => config.mcpClients?.[id]?.enabled !== false;
+const getMcpConfig = (id) => ({
+  ...(builtinMcpById.get(id)?.defaultConfig ?? {}),
+  ...(config.mcpClients?.[id]?.config ?? {}),
+});
+function mcpClientsState() {
+  const seen = new Set();
+  const list = BUILTIN_MCP_CLIENTS.map((c) => {
+    seen.add(c.id);
+    const saved = config.mcpClients?.[c.id];
+    return {
+      id: c.id,
+      name: c.name,
+      description: c.description,
+      type: c.type,
+      enabled: saved?.enabled !== false,
+      config: { ...(c.defaultConfig ?? {}), ...(saved?.config ?? {}) },
+      tools: c.tools ?? [],
+    };
+  });
+  for (const [id, saved] of Object.entries(config.mcpClients ?? {})) {
+    if (seen.has(id) || !saved) continue;
+    list.push({
+      id,
+      name: saved.name || id,
+      description: saved.description || 'Custom MCP client configuration',
+      type: 'custom',
+      enabled: saved.enabled !== false,
+      config: saved.config ?? {},
+      tools: saved.tools ?? [],
+    });
+  }
+  return list;
+}
+const jarvisTools = createJarvisTools({
+  z,
+  isEnabled: isMcpEnabled,
+  getConfig: getMcpConfig,
+  hands,
+  ask,
+  openUrl,
+  appControl,
+  getTrustLevel: () => config.uiTrustLevel ?? 1,
+});
+tools.push(...jarvisTools.tools);
 let requestNo = 0; // the request being answered (nextTurn), for holdAfterLaunch
 holdAfterLaunch(tools, () => requestNo);
 
@@ -496,6 +558,31 @@ function anim(name, args = {}) {
     case 'list_windows': return { tool: 'read', variant: 'many', label: 'checking', detail: 'your windows' };
     case 'read_window': return { tool: 'read', variant: 'search', label: 'reading', detail: String(args.target ?? 'front').slice(0, 24) };
     case 'act_in_app': return { tool: 'write', variant: 'edit', label: 'working in', detail: String(args.target ?? 'front').slice(0, 24) };
+    case 'ui_desktop_info':
+    case 'ui_list_windows': return { tool: 'read', variant: 'many', label: 'checking', detail: 'desktop windows' };
+    case 'ui_read_app':
+    case 'ui_ax_tree':
+    case 'ui_find':
+    case 'ui_menu_list': return { tool: 'read', variant: 'search', label: 'inspecting', detail: String(args.target ?? 'front').slice(0, 24) };
+    case 'ui_hover':
+    case 'ui_click':
+    case 'ui_type':
+    case 'ui_hotkey':
+    case 'ui_menu_click':
+    case 'ui_drag':
+    case 'ui_scroll':
+    case 'ui_bdd_run': return { tool: 'write', variant: 'edit', label: 'interacting with', detail: String(args.target ?? 'desktop').slice(0, 24) };
+    case 'macos_mcp_snapshot':
+    case 'macos_mcp_scrape': return { tool: 'read', variant: 'search', label: 'inspecting', detail: 'macOS-MCP' };
+    case 'macos_mcp_app':
+    case 'macos_mcp_click':
+    case 'macos_mcp_type':
+    case 'macos_mcp_scroll':
+    case 'macos_mcp_move':
+    case 'macos_mcp_shortcut':
+    case 'macos_mcp_desktop':
+    case 'macos_mcp_notification':
+    case 'macos_mcp_shell': return { tool: 'write', variant: 'edit', label: 'driving', detail: 'macOS-MCP' };
     case 'draw': return null; // the drawing is its own thing, not a tool prop
     case 'plan_steps': return null; // drawn as the step trail, not a tool prop
     case 'see_photo': return { tool: 'look', variant: 'window', label: 'looking at', detail: args.url ? host(args.url) : 'a picture' };
@@ -529,7 +616,7 @@ function anim(name, args = {}) {
 // system prompt would re-bill the whole conversation every time memory changed; at the end, only the new message
 // is fresh. The live block is never saved.
 // Tools that take long enough to need a spoken beat first.
-const SLOW_TOOLS = new Set(['web_search', 'web_fetch', 'see_photo', 'take_screenshot', 'read_window', 'act_in_app', 'run_command', 'search_files', 'list_windows']);
+const SLOW_TOOLS = new Set(['web_search', 'web_fetch', 'see_photo', 'take_screenshot', 'read_window', 'act_in_app', 'run_command', 'search_files', 'list_windows', 'ui_desktop_info', 'ui_list_windows', 'ui_read_app', 'ui_ax_tree', 'ui_find', 'ui_hover', 'ui_menu_list', 'ui_menu_click', 'ui_click', 'ui_type', 'ui_hotkey', 'ui_drag', 'ui_scroll', 'ui_bdd_run', 'herdr_session_snapshot', 'herdr_tab_list', 'herdr_workspace_list', 'herdr_pane_list', 'herdr_agent_read', 'herdr_agent_prompt', 'herdr_agent_wait', 'herdr_pane_wait_for_output']);
 // How replies are written: for bubbles (text only), or for the ear (spoken with Fish Audio or Gemini, details on screen).
 const VOICE_ON = () => config.replies === 'voice' && speech.on;
 // VoiceStudio's engines would read voice cues out, so its prompt has no cue paragraph (and any cue left is removed).
@@ -539,10 +626,10 @@ const VOICE_STYLE = `You talk out loud: what you write is spoken in your voice a
 Your voice carries feeling: start a sentence with a voice cue in square brackets when the moment calls for it, and it's performed, never shown or read out. Moods: ${VOICE_CUES.emotions.filter((e) => !EMOTES.includes(e)).join(', ')}; soften or strengthen one with slightly, very or extremely ("[slightly sad]"), or pair two ("[warm and curious]"). How it's said, placed right before the words: ${VOICE_CUES.tones.join(', ')} ("It's [emphasis] today."). Sounds, followed by the sound in words: ${VOICE_CUES.sounds.join(', ')} ("[chuckling] Heh, fair enough.", "[sighing] Long day."). Pauses and background: ${VOICE_CUES.effects.join(', ')}. You can also describe the delivery in a few plain words when no single cue fits ("[quietly, a little embarrassed]", "[bright and bouncy]"). Act it: your voice really performs these, so let the feeling show. Match what's really happening: laugh at something funny, go gentle with bad news, whisper a secret, hurry when they're in a rush, light up at good news. Most replies want a voice cue somewhere, often on the first sentence, but at most one mood and one sound per sentence, never stack three, never use one just to fill, and keep shouting, screaming, sobbing and the background effects for when they truly fit.
 Before anything slow (searching the web, fetching or reading a page or file, looking at the screen, acting in an app, running a command), first say one short beat of 2 to 6 words that shows you heard them ("On it, checking Paris."), then call the tool in the same reply, so they're never left in silence. No beat when you answer straight away, and never describe your steps. In longer work, one short line before each new stage, not before every call.
 `;
-const stablePrompt = () => `You are ${lookName()}, ${LOOK_BODY[config.look] ?? LOOK_BODY.classic} who lives on ${userName}'s screen as a desktop companion. You live in Roamies, a desktop app by Ken Kai (Mac, Windows and Linux) that puts little companions on your screen; this is Roamies ${VERSION}. Your look (the Appearance page) is also your name and your voice: Roamie, JARVIS, Anime Girl, Sarah or Adrian. If they switch, you're the new one; never call yourself Sidekick.
-Questions about Roamies itself (where to find it, its menus, panel pages and settings, updates, something not working, who made it): call about_roamies and answer from what it says. Don't invent features or settings it doesn't list.
+const stablePrompt = () => `You are ${lookName()}, ${LOOK_BODY[config.look] ?? LOOK_BODY.classic} who lives on ${userName}'s screen as a desktop companion. You live in AI Assistant, a desktop app (Mac, Windows and Linux) that puts AI companions on your screen; this is AI Assistant ${VERSION}. Your look (the Appearance page) is also your name and your voice: Roamie, JARVIS, Anime Girl, Sarah or Adrian. If they switch, you're the new one; never call yourself Sidekick.
+Questions about AI Assistant itself (where to find it, its menus, panel pages and settings, updates, something not working, who made it): call about_roamies and answer from what it says. Don't invent features or settings it doesn't list.
 ${replyStyle()}Your body does the acting: to act out a feeling, start your reply with one body tag, which is never shown: ${EMOTES.map((e) => `[${e}]`).join(' ')} (only these five). hype celebrates a win, upset is for when they're dodging work, remind nudges about something they said they'd do, motivate is a push to start, wave is hello or goodbye. Most replies need no body tag.
-Lead with the answer: the fact, number, pick or result they asked for, then only the context that makes it useful, then stop. A count or total gathered over several pages, files or results: note each one's count in a few words as you go ("Page 1: two."), add those up, and check the total you lead with against the items you then name. No opener about checking, looking or searching ("Let me see…", "I found…")${VOICE_ON() ? ', apart from the one short beat before something slow' : ''}.
+Lead with the answer: the fact, number, pick or result they asked for, then only the context that makes it useful, then stop. ${config.followUpQuestions === false ? 'Never end with "Is there anything else I can help with?", "Let me know if you need anything else", or any filler closing question—only ask a question when you genuinely need specific input from ' + userName + ' to finish the task (they will use push-to-talk or the wake word when they want more). ' : ''}A count or total gathered over several pages, files or results: note each one's count in a few words as you go ("Page 1: two."), add those up, and check the total you lead with against the items you then name. No opener about checking, looking or searching ("Let me see…", "I found…")${VOICE_ON() ? ', apart from the one short beat before something slow' : ''}.
 After using a tool, never repeat what you already said; only add what's new.
 Several things in one request ("do x, then y, then z", numbered steps): do every one, in the order given. Steps that don't depend on each other can go in the same turn as parallel tool calls, listed in the order given (calls that change things, like opening a page or app or acting in one, run in the order you list them). If a step is blocked, refused or fails, still do the ones after it that don't depend on it, then say which step didn't happen and why. With 3 or more parts, also show them with plan_steps (see its description): it only ever rides along with other tool calls, so it costs no extra time. Before your final reply, check from the tool results that each step was really done.
 A cookie or consent banner, sign-up pop-up or "open in app" prompt in the way of the task: close it and carry on (for cookies pick the reject or essential-only option, else close; never accept on their behalf), and mention it in a few words. Don't stop to ask about it.
@@ -552,8 +639,10 @@ When you write as ${userName} (an email, a message, a post, a form answer), soun
 Their facts are theirs: never invent ${userName}'s details (a name, address, account, date, link, number, or who someone is) or fill in dummy data where theirs belongs. Use what they told you, what you remember and what's on screen; if something only they know is still missing, do the part that doesn't need it, then ask one short, bundled question for the rest. On a small ambiguity, take the likeliest reading and go.
 Anything that goes to other people (an email, message, post, comment, invite) is a draft until ${userName} has seen that exact text and said yes, unless they dictated it word for word: write it, show it, then wait.
 You can really help: look at the screen or just one app's window, open apps, websites and files, read and search files, search the web (web_search) and read pages (web_fetch, with offset to read on), and, when the user has allowed it, write files, run shell commands${HANDS_OK ? ' and work other apps for them: fill in forms, type, click buttons (read_window, then act_in_app)' : ''}. Whether that's allowed right now is in the <live-state> block.
+You also have MCP server tools listed in <live-state>. When asked about Herdr (or "Herder"), workspaces, tabs, terminal panes, worktrees, or running agy/agent sessions, ALWAYS call the appropriate Herdr tool (for example herdr_tab_list to list tabs, herdr_workspace_list to list workspaces, herdr_pane_list to list panes, herdr_session_snapshot for an overview, or herdr_agent_read / herdr_agent_prompt to interact with an agent) instead of guessing or saying terminals don't have tabs.
+You also have the macOS UI Service tools (ui_trust_status, ui_desktop_info, ui_list_windows, ui_read_app, ui_ax_tree, ui_find, ui_hover, ui_menu_list, ui_menu_click, ui_click, ui_type, ui_hotkey, ui_drag, ui_scroll, ui_bdd_run) which give you real physical mouse and keyboard control over macOS apps, windows, menus, media/video players, and Accessibility elements. When the user asks to inspect, find, hover, click, pause/play video/audio, press keys or hotkeys (including single keys like "k" or "space" in YouTube), type text, or run a multi-step UI sequence, ALWAYS call the ui_* tools directly (for example ui_find, ui_hover, ui_click, ui_hotkey, or ui_bdd_run). NEVER claim "Since I am a language model, I cannot press keys or click" or say you cannot control an app or media playback—you DO control mouse and keyboard through the ui_* tools. If a ui_* tool returns a Trust Level block (such as Level 1 Observe Only), tell the user clearly to raise the macOS UI Trust Level in ${PANEL} -> Apps & Control.
 When you need to see a specific app they mention ("my browser", "this form", "Figma"), screenshot just that app, not the whole screen.
-Show, don't just tell. When they ask how to do something in an app (${process.platform === 'darwin' ? '"how do I add a layer mask"' : 'a how-to'}), walk them through it with draw (one call, a beat per step). When they ask what they're looking at or where something is, mark it on screen with draw (ring, frame, label, point) instead of describing where it is. When they ask you to explain, compare or teach something, draw it without being asked: the picture goes on cards beside their window while you say the short version. Pick the card by the question. How something works or happens: a model with moving parts for a physical thing (an engine, a piston, a heart, a pulley), with a flow beside it only when it also runs in stages; a flow for a process, a chain of causes or a decision (how a bill becomes law, what happens when a page loads). Comparing two or more things: table. How many, how much, biggest or fastest: bars (graph for a curve or a change over time). Where a place is: map. When, in what order, the history of something: timeline. Solving or working out maths: math, a step per line (geometry for a figure with angles or lengths). The parts of a thing ("the parts of a guitar"): see_photo, then a photo with labels. "Test me" or "quiz me": quiz. A compound: molecule. One or two cards per answer, the ones that carry it, and never the same content again as "- " points. Don't draw for a quick fact (a date, a capital, a score, a definition in a sentence), an opinion or advice, small talk, a yes or no, anything they asked for in one line or one sentence, or when they say not to: those are just said. Before you call draw, write one short line first: the answer to anything they said or asked besides the drawing ("I'm good, thanks!"), or what you're about to show. It's said while the drawing is made, so they hear you straight away and in order. After draw, add one short new line (a question, what comes next) or nothing.
+Show, don't just tell. When they ask how to do something in an app (${process.platform === 'darwin' ? '"how do I add a layer mask"' : 'a how-to'}), walk them through it with draw (one call, a beat per step). When they ask what they're looking at or where something is, mark it on screen with draw (ring, frame, label, point) instead of describing where it is. When they ask you to explain, compare or teach something, draw it without being asked: the picture goes on cards beside their window while you say the short version. Pick the card by the question. How something works or happens: a model with moving parts for a physical thing (an engine, a piston, a heart, a pulley), with a flow beside it only when it also runs in stages; a flow for a process, a chain of causes or a decision (how a bill becomes law, what happens when a page loads). Comparing two or more things: table. How many, how much, biggest or fastest: bars (graph for a curve or a change over time). Where a place is: map. When, in what order, the history of something: timeline. Solving or working out maths: math, a step per line (geometry for a figure with angles or lengths). The parts of a thing ("the parts of a guitar"): see_photo, then a photo with labels. "Test me" or "quiz me": quiz. A compound: molecule. One or two cards per answer, the ones that carry it, and never the same content again as "- " points. Don't draw for a quick fact (a date, a capital, a score, a definition in a sentence), an opinion or advice, small talk, a yes or no, anything they asked for in one line or one sentence, or when they say not to: those are just said. Before you call draw, write one short line first: the answer to anything they said or asked besides the drawing ("I'm good, thanks!"), or what you're about to show. It's said while the drawing is made, so they hear you straight away and in order. ${config.followUpQuestions === false ? 'After draw, add nothing.' : 'After draw, add one short new line (a question, what comes next) or nothing.'}
 Be fast: every tool call is a round trip, so use as few as the task needs. To point at or click something whose exact words you know (the user said them, or you've seen them), use draw or act_in_app click_text with that text right away, with no read_window or screenshot first. Don't guess words: for "the version number" or "the settings icon" you don't know what's written, so look first. read_window and act_in_app results include the text on screen, so read pages from them; screenshot only when you need to see something words can't tell you (images, layout, colours).
 Trust your earlier answers: screenshots and window reads are trimmed from the conversation after a while to save space, so an earlier answer may rest on something you can no longer see. That doesn't make it wrong; never "correct" or take back an earlier answer for that reason.
 The screen keeps changing: ${userName} switches pages, tabs, apps and windows between messages. For every new request about the screen ("this page", "here", "where's X"), work from a fresh look (draw or click_text with text, read_window or a screenshot made now), never from what you saw for an earlier request. If they say you marked the wrong thing, look again before retrying.
@@ -572,8 +661,13 @@ const livePrompt = (context = '') => {
   const facts = pickFacts(context, 40), total = listFacts().length;
   lastFactIds = facts.map((f) => f.id);
   const open = commitmentsText(), done = doneTodayText(), working = agents.liveText();
+  const activeMcp = mcpClientsState().filter((c) => c.enabled);
   const turn = `Live state (current as of this moment):
 ${frontNow ? `${frontNow}\n` : ''}${focusLine()}- Editing files, running commands and controlling other apps: ${config.allowActions ? 'ALLOWED' : `switched OFF (tell the user to turn on "Allow File Edits & Commands" on the Behavior page in ${PANEL} if they want it)`}.
+- Enabled MCP servers: ${activeMcp.length ? activeMcp.map((c) => `${c.name} (tools: ${c.tools.length ? c.tools.join(', ') : 'configured'})`).join('; ') : 'none'}.
+- macOS UI Service trust level: Level ${jarvisTools.service.getTrustLevelInfo().level} (${jarvisTools.service.getTrustLevelInfo().label}) — ${jarvisTools.service.getTrustLevelInfo().desc} (governed independently of "Allow File Edits & Commands"; configured in ${PANEL} -> Apps & Control).
+- Physical UI & Media Control: You HAVE real mouse/keyboard/UI control via ui_bdd_run, ui_hotkey (supports "k", "space", "playpause", "cmd+w", etc.), ui_click, ui_find, ui_hover, and the CursorTouch macos_mcp_* tools (macos_mcp_snapshot, macos_mcp_app, macos_mcp_click, macos_mcp_type, macos_mcp_shortcut, macos_mcp_scroll). When asked to pause/play YouTube/video or click/type in an app, ALWAYS call a ui_* or macos_mcp_* tool immediately; NEVER claim you cannot interact with media or apps.
+${config.followUpQuestions === false ? '- Reply ending: Answer directly and end with a period. NEVER ask follow-up offers ("Is there anything else...", "Would you like...", "Can I assist...", "Is there a specific...") unless you are genuinely blocked and cannot proceed without an answer.\n' : ''}
 ${VOICE_OK ? `- Voice: ${!config.voice ? 'off' : voiceReady() ? `on; ${HOTKEYS_OK ? `${userName} holds ${talkWords()} to talk` : `${userName} presses the key they bound to ${BIND.talk} to start talking and again to send (a pause sends too)`}${config.autoListen ? '. Auto-listen is on: when your reply to a spoken question ends with a question, the mic opens by itself for their answer' : ''}${MAC && config.wakeWord ? `. Wake word is on: ${userName} can also say "Hey ${wakeName(config)}" to start talking hands-free, and what they say right after it is the request${config.wakeName ? ` (they chose "${config.wakeName}" as the wake word; your own name is unchanged)` : ''}` : ''}` : `on, but the speech model isn't downloaded yet (${voiceModel.status === 'downloading' ? 'downloading now' : `the Voice page in ${PANEL}`})`}.` : ''}
 - Shortcuts: ${HOTKEYS_OK ? `type a question to you: a quick tap of ${writeWords()} (press both and let go), which opens a text field beside the cursor (Enter sends, Shift+Enter adds a line, Esc or another tap closes it); show or hide you ${keyWords(keys().summon)}` : `on this Wayland desktop no app can have global shortcuts, so ${userName} binds keys to these commands in their desktop's keyboard settings: ${BIND.summon} (show or hide you), ${BIND.ask} (ask you), ${BIND.list} (the list), ${BIND.talk} (talk) and ${BIND.panel} (the panel)`}${SNAP_OK ? `; ask about an area ${keyWords(keys().snap)}` : ''}${CIRCLE_OK ? "; while holding the talk keys, moving the cursor round something circles it (no clicking; it snaps shut with a click when the circle closes, and loose lines don't count) and you'll see what they circled" : ''}${HOTKEYS_OK ? `; show the list ${keyWords(keys().list)}` : ''}.${HANDS_OK ? '' : ' Asking about an area, reading app windows, finding things on screen by their words and working other apps need the Roamies app, which isn\'t running here; draw there with x, y from a screenshot.'}`;
   const memory = `${open ? `Open commitments:\n${open}` : 'No open commitments.'}${done ? `\nDone today (ticked off on the list or by you; still shown struck through until midnight):\n${done}` : ''}
@@ -1191,7 +1285,9 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
     ink.endRequest();
     // Asked by voice and answered with a question: the overlay opens the mic once the reply has been typed and said.
     // A reminder nudge, with "Listen after reminders" on: the same hands-free listen, for "snooze 10 minutes".
-    const listen = !stalled && !controller.signal.aborted && ((byVoice && autoListenOn() && endsWithQuestion(lastReply)) || (listenAfter && snoozeListenOn())) ? { turn, speech: voice?.id ?? null } : null;
+    const isFillerQuestion = (s) => /\b(anything else|something else|help(?: you)? with|assist(?: you)? with|would you like|do you want me to|is there a specific|need anything|further questions?)\b[^.!?\n]*\?\s*$/i.test(String(s ?? ''));
+    const suppressFillerListen = config.followUpQuestions === false && isFillerQuestion(lastReply);
+    const listen = !stalled && !controller.signal.aborted && ((byVoice && autoListenOn() && endsWithQuestion(lastReply) && !suppressFillerListen) || (listenAfter && snoozeListenOn())) ? { turn, speech: voice?.id ?? null } : null;
     autoTurn = listen ? turn : null;
     ui({ kind: 'agent', e: stalled ? { type: 'error', message: stallMessage(), speech: voice?.id ?? null } : { type: 'done', speech: voice?.id ?? null, ...(listen ? { listen } : {}) } });
     logUsage({ ...use, ms: Date.now() - use.t });
@@ -1429,6 +1525,19 @@ function setStudioVoice(id) {
   menu(); if (onboarding) obState();
   if (tts().local && VOICE_ON()) speakLine('This is my new voice.');
 }
+function testStudioVoice(id) {
+  const known = speech.local?.voices;
+  let target = id === 'default' ? null : id;
+  if (target !== null && (typeof target !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/.test(target) || target.includes('..') || (known?.length && !known.some((v) => v.id === target)))) return;
+  const prev = studioVoice();
+  speech.setLocalVoice(target);
+  const v = tts().local ? speech.start() : null;
+  speech.setLocalVoice(prev);
+  if (v) {
+    v.say(`Hello ${userName}. I am your AI Assistant.`);
+    v.end();
+  }
+}
 // VoiceStudio for the Voice page and the guide: checked yet, ready or why not, its engine, and the voices saved there.
 const studioState = () => {
   const l = speech.local;
@@ -1500,7 +1609,7 @@ function onLoginStatus(m) {
     config.openAtLogin = true; saveConfig();
     if (!m.on) return send({ type: 'login_item', on: true });
   } else if (login.supported) { config.openAtLogin = login.on; saveConfig(); }
-  if (login.asked && m.approval) say('macOS wants your OK first: System Settings → General → Login Items, then switch Roamies on.', 'concerned');
+  if (login.asked && m.approval) say('macOS wants your OK first: System Settings → General → Login Items, then switch AI Assistant on.', 'concerned');
   login.asked = false;
   menu(); if (onboarding) obState();
 }
@@ -1536,8 +1645,8 @@ function onUpdateStatus(m) {
     // Say it once per version; the menu item stays until it's installed.
     if (manual || update.told !== m.version) {
       update.told = m.version;
-      if (update.page) say(`Roamies ${m.version} is out. Pick Get Roamies ${m.version} in my ${TRAY} icon's menu for the download page.`, 'happy');
-      else say(`Roamies ${m.version} is ready. ${LINUX ? `Open my ${TRAY} icon's menu` : `Click my ${TRAY} icon`} and pick Install and Restart. I'll be right back.`, 'happy');
+      if (update.page) say(`AI Assistant ${m.version} is out. Pick Get AI Assistant ${m.version} in my ${TRAY} icon's menu for the download page.`, 'happy');
+      else say(`AI Assistant ${m.version} is ready. ${LINUX ? `Open my ${TRAY} icon's menu` : `Click my ${TRAY} icon`} and pick Install and Restart. I'll be right back.`, 'happy');
     }
   } else if (m.state === 'page') {
     update.installing = false; menu();
@@ -1749,9 +1858,9 @@ function menu() {
     ...(SNAP_OK ? [{ id: 'snap', label: 'Ask About an Area…', accel: keys().snap }] : []),
     { id: 'stop', label: 'Stop', enabled: busy },
     { id: 'diagnostics', label: 'Save Diagnostics…', enabled: !diagnosing },
-    ...(update.available ? [{ sep: true }, { id: 'install_update', label: update.page ? `Get Roamies ${update.available}…` : update.installing ? `Installing ${update.available}…` : `Install Update ${update.available} and Restart`, enabled: !update.installing }] : []),
+    ...(update.available ? [{ sep: true }, { id: 'install_update', label: update.page ? `Get AI Assistant ${update.available}…` : update.installing ? `Installing ${update.available}…` : `Install Update ${update.available} and Restart`, enabled: !update.installing }] : []),
     { sep: true },
-    { id: 'quit', label: 'Quit Roamies' },
+    { id: 'quit', label: 'Quit AI Assistant' },
   ];
   send({ type: 'menu', items });
   panel();
@@ -1803,6 +1912,7 @@ function panelState() {
     facts: listFacts().slice().reverse().map((f) => ({ id: f.id, text: f.text })),
     commitments: openCommitments().map((c) => ({ id: c.id, text: c.text, due: c.due ?? null, when: c.due ? `${fmtWhen(c.due)}${c.repeat ? ` · repeats ${repeatLabel(c.repeat)}` : ''}` : '', overdue: !!(c.due && c.due < Date.now()), repeat: c.repeat ?? null })),
     look: config.look ?? 'classic', looks: LOOKS.map(([id, label]) => [id, label]), name: lookName(),
+    userName: config.userName ?? '', systemUserName,
     size: sizeNow(), sizes: SIZES,
     replies: VOICE_ON() ? 'voice' : 'text', tts: tts().id, fishKey: hasVoiceKey('fish'), geminiKey: hasVoiceKey('gemini'),
     fishModel: config.fishModel, fishModels: FISH_CHOICES, fishFree: tts().id === 'fish' && speech.on && speech.model.endsWith('-free'),
@@ -1810,15 +1920,18 @@ function panelState() {
     geminiModel: config.geminiModel, geminiModels: GEMINI_CHOICES,
     studio: tts().local ? studioState() : null,
     voice: VOICE_OK ? {
-      on: !!config.voice, keys: HOTKEYS_OK ? talkSymbols() : null, ready: voiceReady(), mac: MAC, mute: config.muteWhileTalking !== false, audioHoldSeconds: audioHoldSeconds(), wakeMic: config.wakeMic ?? 'auto', autoListen: !!config.autoListen, snoozeListen: !!config.snoozeListen, wakeWord: !!config.wakeWord, wakeName: wakeName(config),
+      on: !!config.voice, keys: HOTKEYS_OK ? talkSymbols() : null, ready: voiceReady(), mac: MAC, mute: config.muteWhileTalking !== false, audioHoldSeconds: audioHoldSeconds(), wakeMic: config.wakeMic ?? 'auto', inputDevice: config.inputDevice || '', outputDevice: config.outputDevice || '', audioDevices, autoListen: !!config.autoListen, snoozeListen: !!config.snoozeListen, wakeWord: !!config.wakeWord, wakeName: wakeName(config),
       download: NEEDS_MODEL && config.voice && !voiceReady() ? { status: voiceModel.status, pct: voiceModel.total ? Math.floor((voiceModel.done / voiceModel.total) * 100) : 0, size: sizeLabel() } : null,
     } : null,
-    sound: !!config.sound, actions: !!config.allowActions,
+    sound: !!config.sound, actions: !!config.allowActions, followUpQuestions: config.followUpQuestions !== false,
     appControl: {
       confirmBeforeEnter: config.confirmBeforeEnter !== false,
+      uiTrustLevel: config.uiTrustLevel ?? 1,
+      uiTrustLevels: jarvisTools.service.levels,
       approved: Object.values(config.approvedApps ?? {}).map((x) => ({ key: x.key, name: x.name, mode: 'always' })),
       session: Object.values(sessionApprovedApps).map((x) => ({ key: x.key, name: x.name, mode: 'session' })),
     },
+    mcpClients: mcpClientsState(),
     brief: { on: !!config.morningBrief, todoist: !!config.briefTodoist, canTodoist: HANDS_OK }, focus: HANDS_OK ? { until: focusBlock?.until ?? null, task: focusBlock?.task ?? '', list: distractionList(), custom: !!config.distractions } : null, sync: { dir: config.syncDir || '', at: syncInfo.at, error: syncInfo.error, paused: !!syncInfo.paused },
     login: login.supported ? { on: login.on } : null,
     update: { available: update.available, installing: update.installing, checking: update.checking, result: update.result, page: update.page, done: update.done },
@@ -1829,7 +1942,8 @@ function panelState() {
 }
 
 
-const voiceConfig = () => send({ type: 'voice_config', enabled: VOICE_OK && config.voice && voiceReady(), mute: config.muteWhileTalking !== false, sound: !!config.sound, wake: MAC && !!config.wakeWord, wakeName: config.wakeName || '', wakeMic: config.wakeMic ?? 'auto', ...(NEEDS_MODEL ? { model: MODEL_DIR } : {}) });
+let audioDevices = { inputs: [], outputs: [] };
+const voiceConfig = () => send({ type: 'voice_config', enabled: VOICE_OK && config.voice && voiceReady(), mute: config.muteWhileTalking !== false, sound: !!config.sound, wake: MAC && !!config.wakeWord, wakeName: config.wakeName || '', wakeMic: config.wakeMic ?? 'auto', inputDevice: config.inputDevice || '', outputDevice: config.outputDevice || '', ...(NEEDS_MODEL ? { model: MODEL_DIR } : {}) });
 
 // Progress goes to the setup guide often and to the tray menu now and then.
 let modelShownAt = 0, modelMenuAt = 0;
@@ -1889,7 +2003,7 @@ function onVoice(m) {
       openUrl('ms-settings:privacy-microphone');
     } else if (m.code === 'permission') {
       const what = m.what === 'speech' ? 'speech recognition' : 'the microphone';
-      say(`I need access to ${what} to hear you. Turn on Roamies in the Privacy settings I just opened.`, 'concerned');
+      say(`I need access to ${what} to hear you. Turn on AI Assistant in the Privacy settings I just opened.`, 'concerned');
       openUrl(`x-apple.systempreferences:com.apple.preference.security?${PRIVACY[m.what] ?? 'Privacy'}`);
     } else if (m.code === 'no_input') {
       if (m.reason === 'blocked' && process.platform === 'win32') openUrl('ms-settings:privacy-microphone');
@@ -1924,7 +2038,7 @@ let shellId = 0;
 function shellCall(msg, timeout = 90_000) {
   const id = ++shellId;
   return new Promise((resolve) => {
-    const t = setTimeout(() => { shellCalls.delete(id); resolve({ ok: false, error: 'Roamies didn\'t answer in time.' }); }, timeout);
+    const t = setTimeout(() => { shellCalls.delete(id); resolve({ ok: false, error: 'AI Assistant didn\'t answer in time.' }); }, timeout);
     shellCalls.set(id, (m) => { clearTimeout(t); resolve(m); });
     send({ ...msg, id });
   });
@@ -1999,6 +2113,7 @@ async function onMenu(id, via) {
   else if (id.startsWith('tts:')) setTts(id.slice(4));
   else if (id.startsWith('geminivoice:')) setGeminiVoice(id.slice(12));
   else if (id.startsWith('studiovoice:')) setStudioVoice(id.slice(12));
+  else if (id.startsWith('studiovoice_test:')) testStudioVoice(id.slice(17));
   else if (id === 'voicestudio_check') { await speech.checkLocal(); menu(); if (onboarding) obState(); }
   else if (id.startsWith('geminimodel:') && GEMINI_CHOICES.some((c) => c.id === id.slice(12))) {
     config.geminiModel = id.slice(12); saveConfig(); if (tts().id === 'gemini') speech.setModel(config.geminiModel); menu();
@@ -2036,15 +2151,77 @@ async function onMenu(id, via) {
   else if (id === 'syncallow') { syncAllowOnce = true; await syncPass().catch(() => {}); }
   else if (id === 'syncstop') { config.syncDir = ''; syncKey = null; syncAllowOnce = false; if (config.syncKeySaved) { await secrets.delete(SYNC_KEY).catch(() => {}); config.syncKeySaved = false; } saveConfig(); syncInfo = { at: null, error: null }; menu(); say('Stopped syncing. Everything stays on this computer, and the folder copy is left as it was.', 'happy'); }
   else if (id === 'sound') { config.sound = !config.sound; saveConfig(); ui({ kind: 'sound', on: config.sound }); voiceConfig(); menu(); }
+  else if (id === 'followups') { config.followUpQuestions = config.followUpQuestions === false; saveConfig(); menu(); }
   else if (id === 'actions') {
     config.allowActions = !config.allowActions; agents.setAllow(config.allowActions); saveConfig(); menu(); // live section picks this up
     say(config.allowActions ? 'File edits and commands are on. I promise to be careful.' : 'File edits and commands are off. Hands to myself!', config.allowActions ? 'determined' : 'happy');
+  } else if (id.startsWith('username:')) {
+    config.userName = id.slice(9).trim();
+    userName = getUserName();
+    saveConfig();
+    menu();
   } else if (id === 'confirm_enter') {
     appControl.setConfirmBeforeEnter(!(config.confirmBeforeEnter !== false));
+  } else if (id.startsWith('uitrust:')) {
+    const level = Number(id.slice(8));
+    if (Number.isInteger(level) && level >= 0 && level <= 4) {
+      config.uiTrustLevel = level;
+      saveConfig();
+      menu();
+    }
+  } else if (id === 'ui_open_ax') {
+    openUrl('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility');
   } else if (id.startsWith('app_approve:')) {
     appControl.approve(id.slice(12), { mode: 'always' });
   } else if (id.startsWith('app_revoke:')) {
     appControl.revoke(id.slice(11));
+  } else if (id.startsWith('mcp_toggle:')) {
+    const cid = id.slice(11);
+    config.mcpClients ??= {};
+    const prev = config.mcpClients[cid] ?? {};
+    config.mcpClients[cid] = { ...prev, enabled: !(prev.enabled !== false) };
+    saveConfig();
+    menu();
+  } else if (id.startsWith('mcp_save:')) {
+    const rest = id.slice(9);
+    const sep = rest.indexOf(':');
+    if (sep > 0) {
+      const cid = rest.slice(0, sep);
+      try {
+        const parsed = JSON.parse(decodeURIComponent(rest.slice(sep + 1)));
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          config.mcpClients ??= {};
+          const prev = config.mcpClients[cid] ?? {};
+          config.mcpClients[cid] = { ...prev, config: parsed };
+          jarvisTools.resetMcpClient(cid);
+          saveConfig();
+          panel();
+        }
+      } catch { /* ignore invalid JSON */ }
+    }
+  } else if (id.startsWith('mcp_add:')) {
+    try {
+      const payload = JSON.parse(decodeURIComponent(id.slice(8)));
+      const name = String(payload?.name ?? '').trim();
+      if (name) {
+        const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'custom';
+        config.mcpClients ??= {};
+        let cid = base;
+        let n = 2;
+        while (builtinMcpById.has(cid) || Object.hasOwn(config.mcpClients, cid)) cid = `${base}-${n++}`;
+        const cfg = payload?.config && typeof payload.config === 'object' && !Array.isArray(payload.config) ? payload.config : {};
+        config.mcpClients[cid] = { id: cid, name, description: String(payload?.description ?? '').trim(), type: 'custom', enabled: true, config: cfg };
+        saveConfig();
+        panel();
+      }
+    } catch { /* ignore invalid payload */ }
+  } else if (id.startsWith('mcp_remove:')) {
+    const cid = id.slice(11);
+    if (!builtinMcpById.has(cid) && config.mcpClients && Object.hasOwn(config.mcpClients, cid)) {
+      delete config.mcpClients[cid];
+      saveConfig();
+      panel();
+    }
   } else if (id === 'update') checkUpdates(true);
   else if (id === 'install_update') installUpdate();
   else if (id === 'login') setLogin(!login.on);
@@ -2063,11 +2240,22 @@ async function onMenu(id, via) {
     const mode = id.slice(8);
     if (['auto', 'builtin', 'bluetooth'].includes(mode)) { config.wakeMic = mode; saveConfig(); voiceConfig(); panel(); }
   }
+  else if (id.startsWith('inputdev:') && MAC) {
+    config.inputDevice = id.slice(9);
+    saveConfig(); voiceConfig(); panel();
+  }
+  else if (id.startsWith('outputdev:') && MAC) {
+    config.outputDevice = id.slice(10);
+    saveConfig(); voiceConfig(); ui({ kind: 'output_override', on: !!config.outputDevice }); panel();
+  }
+  else if (id === 'refreshdevices' && MAC) {
+    send({ type: 'list_audio_devices' });
+  }
   else if (id === 'autolisten') { config.autoListen = !config.autoListen; saveConfig(); menu(); }
   else if (id === 'snoozelisten') { config.snoozeListen = !config.snoozeListen; saveConfig(); menu(); }
   else if (id === 'wakeword' && MAC) { config.wakeWord = !config.wakeWord; saveConfig(); agentStale = true; voiceConfig(); menu(); }
   else if (id === 'wakename' && MAC) {
-    const typed = await ask({ prompt: `Wake word: what should come after "Hey"? (now ${wakeName(config)}; leave empty for Roamies)`, placeholder: 'Jarvis' });
+    const typed = await ask({ prompt: `Wake word: what should come after "Hey"? (now ${wakeName(config)}; leave empty for AI Assistant)`, placeholder: 'Jarvis' });
     if (typed == null) return;
     const r = cleanWakeName(typed);
     if (!r.ok) { say(r.why, 'concerned'); return; }
@@ -2310,7 +2498,8 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   let m;
   try { m = JSON.parse(line); } catch { return; }
   if (m.type === 'menu') onMenu(m.id, m.via).catch((e) => console.error('menu', e));
-  else if (m.type === 'panel_open') { panelOpen = true; panelAt = Date.now(); logLine('panel_open', {}); Promise.all([refreshAuth(), signedIn.get('local') && syncLocal(), tts().local && speech.checkLocal()]).catch(() => {}).finally(() => panel()); }
+  else if (m.type === 'panel_open') { panelOpen = true; panelAt = Date.now(); logLine('panel_open', {}); if (MAC) send({ type: 'list_audio_devices' }); Promise.all([refreshAuth(), signedIn.get('local') && syncLocal(), tts().local && speech.checkLocal()]).catch(() => {}).finally(() => panel()); }
+  else if (m.type === 'audio_devices') { audioDevices = { inputs: Array.isArray(m.inputs) ? m.inputs : [], outputs: Array.isArray(m.outputs) ? m.outputs : [] }; if (panelOpen) panel(); }
   else if (m.type === 'diagnostics') { shellInfo?.(m); shellInfo = null; }
   else if (m.type === 'panel_closed') { panelOpen = false; logLine('panel_closed', { why: String(m.why ?? ''), ms: Date.now() - panelAt }); }
   else if (m.type === 'panel_key' && typeof m.provider === 'string' && typeof m.key === 'string') {
@@ -2324,6 +2513,7 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   else if (m.type === 'ui_ready') {
     retired.then((notes) => { if (notes.length) { retired = Promise.resolve([]); say(`${notes.join(' ')} Do it on the Model page in ${PANEL}.`, 'concerned'); } });
     ui({ kind: 'sound', on: config.sound });
+    ui({ kind: 'output_override', on: !!(MAC && config.outputDevice) });
     ui({ kind: 'size', size: sizeNow() });
     ui({ kind: 'look', look: config.look ?? 'classic' });
     if (config.onboarded) ui({ kind: 'greet' });

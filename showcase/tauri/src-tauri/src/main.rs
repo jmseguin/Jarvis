@@ -84,6 +84,7 @@ static INK_WAIT: AtomicBool = AtomicBool::new(false);
 static WRITE_CHORD: AtomicU8 = AtomicU8::new(0);
 /// The cursor is over something clickable in an overlay (a card, its buttons): a click there is on Roamies, not the app below.
 pub(crate) static OVERLAY_HOT: AtomicBool = AtomicBool::new(false);
+static OUTPUT_OVERRIDE: AtomicBool = AtomicBool::new(false);
 
 fn is_overlay(label: &str) -> bool {
     label.starts_with("overlay-")
@@ -408,7 +409,7 @@ fn diagnostics(app: &AppHandle) -> Value {
         "panel": panel,
         "windows": app.webview_windows().keys().cloned().collect::<Vec<_>>(),
         "voice_helper": voice_binary().map(|p| p.exists()),
-        "hands_helper": helper_binary("roamies-hands").map(|p| p.exists()),
+        "hands_helper": helper_binary("ai_assistant-hands").map(|p| p.exists()),
         "voice_running": app.state::<Voice>().0.lock().map(|v| v.is_some()).unwrap_or(false),
         "permissions": perms,
         "microphones": mics,
@@ -417,7 +418,7 @@ fn diagnostics(app: &AppHandle) -> Value {
 
 /// Accessibility (reading and controlling other apps) is checked by the hands helper.
 fn accessibility(prompt: bool) -> &'static str {
-    let Some(bin) = helper_binary("roamies-hands") else { return "unknown" };
+    let Some(bin) = helper_binary("ai_assistant-hands") else { return "unknown" };
     let mut cmd = Command::new(bin);
     cmd.arg("trusted");
     if prompt {
@@ -491,7 +492,7 @@ async fn screen_check() -> Value {
         return json!({ "unsupported": true });
     }
     tauri::async_runtime::spawn_blocking(|| {
-        let Some(bin) = helper_binary("roamies-hands") else { return json!({ "unsupported": true }) };
+        let Some(bin) = helper_binary("ai_assistant-hands") else { return json!({ "unsupported": true }) };
         Command::new(bin)
             .arg("screencheck")
             .stdin(Stdio::null())
@@ -514,7 +515,7 @@ fn perm_guide(app: AppHandle, kind: Option<String>) {
     #[cfg(target_os = "macos")]
     {
         let Some(kind) = kind.filter(|k| k == "accessibility" || k == "screen") else { return };
-        let Some(bin) = helper_binary("roamies-hands") else { return };
+        let Some(bin) = helper_binary("ai_assistant-hands") else { return };
         // The Roamies.app around this binary; a dev build has none, so the panel shows text only.
         let bundle = std::env::current_exe()
             .ok()
@@ -732,7 +733,7 @@ fn show_panel(app: &AppHandle, rect: Option<tauri::Rect>, toggle: bool) {
         Some(w) => w,
         None => {
             let b = WebviewWindowBuilder::new(app, PANEL_LABEL, WebviewUrl::App("panel/index.html".into()))
-                .title("Roamies")
+                .title("AI Assistant")
                 .inner_size(PANEL_W, PANEL_H)
                 .resizable(false)
                 .maximizable(false)
@@ -890,7 +891,7 @@ fn open_onboarding(app: &AppHandle, mode: Option<&str>) {
     }
     let url = if chat { "onboarding/index.html?mode=chat" } else { "onboarding/index.html" };
     let mut b = WebviewWindowBuilder::new(app, ONBOARDING_LABEL, WebviewUrl::App(url.into()))
-        .title(if chat { "Get to know you" } else { "Welcome to Roamies" })
+        .title(if chat { "Get to know you" } else { "Welcome to AI Assistant" })
         .inner_size(780.0, 540.0)
         .resizable(false)
         .maximizable(false)
@@ -1076,7 +1077,7 @@ fn build_overlays(app: &AppHandle) -> tauri::Result<()> {
             *SIDEKICK_OVERLAY.lock().unwrap() = Some(label.clone());
         }
         let w = WebviewWindowBuilder::new(app, label, WebviewUrl::App("desktop.html".into()))
-            .title("Roamies")
+            .title("AI Assistant")
             .transparent(true)
             .decorations(false)
             .shadow(false)
@@ -1374,8 +1375,8 @@ fn fallback_menu(app: &AppHandle, status: &str) {
     set_menu(app, &[
         json!({ "id": "status", "label": status, "enabled": false }),
         json!({ "sep": true }),
-        json!({ "id": "restart", "label": "Restart Roamies" }),
-        json!({ "id": "quit", "label": "Quit Roamies" }),
+        json!({ "id": "restart", "label": "Restart AI Assistant" }),
+        json!({ "id": "quit", "label": "Quit AI Assistant" }),
     ]);
 }
 
@@ -1528,6 +1529,15 @@ fn handle_sidecar(app: &AppHandle, msg: Value) {
         }
         Some("ui") => {
             if let Some(m) = msg.get("msg") {
+                if m.get("kind").and_then(Value::as_str) == Some("speech") && OUTPUT_OVERRIDE.load(Ordering::Relaxed) {
+                    if m.get("stop").and_then(Value::as_bool) == Some(true) {
+                        to_voice(app, &json!({ "cmd": "speak_stop" }));
+                    } else if let Some(pcm) = m.get("pcm").and_then(Value::as_str) {
+                        let id = m.get("id").and_then(Value::as_str).unwrap_or("");
+                        let rate = m.get("rate").and_then(Value::as_f64).unwrap_or(44100.0);
+                        to_voice(app, &json!({ "cmd": "speak_pcm", "id": id, "pcm": pcm, "rate": rate }));
+                    }
+                }
                 to_overlays(app, m);
             }
         }
@@ -1596,11 +1606,14 @@ fn handle_sidecar(app: &AppHandle, msg: Value) {
         Some("audio_hold") => to_voice(app, &json!({ "cmd": "audio_hold", "on": msg.get("on").and_then(Value::as_bool) == Some(true) })),
         // Esc while it's listening: drop the take.
         Some("listen_cancel") => to_voice(app, &json!({ "cmd": "cancel" })),
+        Some("list_audio_devices") => to_voice(app, &json!({ "cmd": "list_devices" })),
         Some("voice_config") => {
             if let Some(dir) = msg.get("model").and_then(Value::as_str) {
                 *app.state::<VoiceModel>().0.lock().unwrap() = Some(dir.to_owned());
             }
-            if msg.get("enabled").and_then(Value::as_bool) == Some(true) {
+            let out_dev = msg.get("outputDevice").and_then(Value::as_str).unwrap_or("");
+            OUTPUT_OVERRIDE.store(!out_dev.is_empty(), Ordering::Relaxed);
+            if msg.get("enabled").and_then(Value::as_bool) == Some(true) || !out_dev.is_empty() {
                 app.state::<Voice>().1.store(0, Ordering::Relaxed);
                 start_voice(app);
                 let mute = msg.get("mute").and_then(Value::as_bool).unwrap_or(true);
@@ -1613,6 +1626,9 @@ fn handle_sidecar(app: &AppHandle, msg: Value) {
                 to_voice(app, &json!({ "cmd": "wake_name", "word": name }));
                 let wake_mic = msg.get("wakeMic").and_then(Value::as_str).unwrap_or("auto");
                 to_voice(app, &json!({ "cmd": "wake_mic", "mode": wake_mic }));
+                let in_dev = msg.get("inputDevice").and_then(Value::as_str).unwrap_or("");
+                to_voice(app, &json!({ "cmd": "input_device", "uid": in_dev }));
+                to_voice(app, &json!({ "cmd": "output_device", "uid": out_dev }));
             } else {
                 stop_voice(app);
             }
@@ -1690,12 +1706,12 @@ fn main() {
                 app.set_menu(Menu::default(app.handle())?)?;
             }
 
-            let starting = MenuItem::with_id(app, "status", "Starting Roamies…", false, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "Quit Roamies", true, None::<&str>)?;
+            let starting = MenuItem::with_id(app, "status", "Starting AI Assistant…", false, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "Quit AI Assistant", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&starting, &quit])?;
             // Left click opens the panel; right click shows the short menu.
             let mut tray = TrayIconBuilder::with_id("roamies")
-                .tooltip("Roamies")
+                .tooltip("AI Assistant")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_tray_icon_event(|tray, e| {

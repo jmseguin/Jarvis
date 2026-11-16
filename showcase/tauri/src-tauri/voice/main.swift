@@ -294,62 +294,130 @@ final class LegacyRecognizer: Recognizer {
 // transcript), then puts it back. Only ever un-mutes what it muted itself.
 enum OutputMute {
     private static var device: AudioDeviceID?
+    private static var mutedChannels: [AudioObjectPropertyElement] = []
+    private static var savedVolumes: [(AudioObjectPropertyElement, Float32)] = []
+    static var didMuteHardware = false
     static var enabled = true
 
-    private static func addr(_ sel: AudioObjectPropertySelector, _ scope: AudioObjectPropertyScope) -> AudioObjectPropertyAddress {
-        AudioObjectPropertyAddress(mSelector: sel, mScope: scope, mElement: kAudioObjectPropertyElementMain)
+    private static func addr(_ sel: AudioObjectPropertySelector, _ scope: AudioObjectPropertyScope, _ ch: AudioObjectPropertyElement = kAudioObjectPropertyElementMain) -> AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(mSelector: sel, mScope: scope, mElement: ch)
     }
-    private static func defaultOutput() -> AudioDeviceID? {
+    static func defaultOutput() -> AudioDeviceID? {
         var id = AudioDeviceID(0), size = UInt32(MemoryLayout<AudioDeviceID>.size)
         var a = addr(kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyScopeGlobal)
         return AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &a, 0, nil, &size, &id) == noErr && id != 0 ? id : nil
     }
-    private static func muted(_ dev: AudioDeviceID) -> Bool? {
-        var a = addr(kAudioDevicePropertyMute, kAudioDevicePropertyScopeOutput)
+    private static func isSettable(_ dev: AudioDeviceID, _ a: inout AudioObjectPropertyAddress) -> Bool {
+        var settable: DarwinBoolean = false
+        return AudioObjectIsPropertySettable(dev, &a, &settable) == noErr && settable.boolValue
+    }
+    private static func muted(_ dev: AudioDeviceID, _ ch: AudioObjectPropertyElement = kAudioObjectPropertyElementMain) -> Bool? {
+        var a = addr(kAudioDevicePropertyMute, kAudioDevicePropertyScopeOutput, ch)
         guard AudioObjectHasProperty(dev, &a) else { return nil }
         var v = UInt32(0), size = UInt32(MemoryLayout<UInt32>.size)
         return AudioObjectGetPropertyData(dev, &a, 0, nil, &size, &v) == noErr ? v != 0 : nil
     }
-    private static func set(_ dev: AudioDeviceID, _ on: Bool) -> Bool {
-        var a = addr(kAudioDevicePropertyMute, kAudioDevicePropertyScopeOutput)
+    private static func setMute(_ dev: AudioDeviceID, _ on: Bool, _ ch: AudioObjectPropertyElement = kAudioObjectPropertyElementMain) -> Bool {
+        var a = addr(kAudioDevicePropertyMute, kAudioDevicePropertyScopeOutput, ch)
+        guard AudioObjectHasProperty(dev, &a), isSettable(dev, &a) else { return false }
         var v: UInt32 = on ? 1 : 0
         return AudioObjectSetPropertyData(dev, &a, 0, nil, UInt32(MemoryLayout<UInt32>.size), &v) == noErr
     }
+    private static func volume(_ dev: AudioDeviceID, _ ch: AudioObjectPropertyElement) -> Float32? {
+        var a = addr(kAudioDevicePropertyVolumeScalar, kAudioDevicePropertyScopeOutput, ch)
+        guard AudioObjectHasProperty(dev, &a), isSettable(dev, &a) else { return nil }
+        var v = Float32(0), size = UInt32(MemoryLayout<Float32>.size)
+        return AudioObjectGetPropertyData(dev, &a, 0, nil, &size, &v) == noErr ? v : nil
+    }
+    private static func setVolume(_ dev: AudioDeviceID, _ val: Float32, _ ch: AudioObjectPropertyElement) -> Bool {
+        var a = addr(kAudioDevicePropertyVolumeScalar, kAudioDevicePropertyScopeOutput, ch)
+        guard AudioObjectHasProperty(dev, &a), isSettable(dev, &a) else { return false }
+        var v = val
+        return AudioObjectSetPropertyData(dev, &a, 0, nil, UInt32(MemoryLayout<Float32>.size), &v) == noErr
+    }
 
     static func begin() {
-        guard enabled, device == nil, let dev = defaultOutput(), muted(dev) == false else { return }
-        if set(dev, true) { device = dev; log("output muted while listening") }
+        didMuteHardware = false
+        guard enabled, device == nil, let dev = defaultOutput() else { return }
+        var mChs: [AudioObjectPropertyElement] = []
+        for ch: AudioObjectPropertyElement in [kAudioObjectPropertyElementMain, 1, 2] {
+            if muted(dev, ch) == false, setMute(dev, true, ch) {
+                mChs.append(ch)
+                if ch == kAudioObjectPropertyElementMain { break }
+            }
+        }
+        if !mChs.isEmpty {
+            device = dev
+            mutedChannels = mChs
+            didMuteHardware = true
+            log("output muted while listening")
+            return
+        }
+        var vols: [(AudioObjectPropertyElement, Float32)] = []
+        for ch: AudioObjectPropertyElement in [kAudioObjectPropertyElementMain, 1, 2] {
+            if let cur = volume(dev, ch), cur > 0.001, setVolume(dev, 0.0, ch) {
+                vols.append((ch, cur))
+                if ch == kAudioObjectPropertyElementMain { break }
+            }
+        }
+        if !vols.isEmpty {
+            device = dev
+            savedVolumes = vols
+            didMuteHardware = true
+            log("output volume zeroed while listening")
+            return
+        }
+        log("output device has no hardware mute or volume; using media pause")
     }
     /// Unmute for a moment (a cue that must be heard while listening), then mute again if still listening.
     static func lift(for seconds: Double) {
-        guard let dev = device, set(dev, false) else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
-            if device == dev, muted(dev) == false { _ = set(dev, true) }
+        guard let dev = device else { return }
+        if !mutedChannels.isEmpty {
+            for ch in mutedChannels { _ = setMute(dev, false, ch) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+                if device == dev {
+                    for ch in mutedChannels where muted(dev, ch) == false { _ = setMute(dev, true, ch) }
+                }
+            }
+        } else if !savedVolumes.isEmpty {
+            for (ch, v) in savedVolumes { _ = setVolume(dev, v, ch) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+                if device == dev {
+                    for (ch, _) in savedVolumes { _ = setVolume(dev, 0.0, ch) }
+                }
+            }
         }
     }
     static func end() {
+        didMuteHardware = false
         guard let dev = device else { return }
         device = nil
-        let restore = { (d: AudioDeviceID) -> Bool in
-            guard muted(d) != false else { return true }
-            if set(d, false) { log("output restored"); return true }
-            return false
+        let mChs = mutedChannels
+        let vols = savedVolumes
+        mutedChannels = []
+        savedVolumes = []
+        var ok = true
+        for ch in mChs where muted(dev, ch) != false {
+            if setMute(dev, false, ch) { log("output restored") } else { ok = false }
         }
-        var ok = restore(dev)
-        if let cur = defaultOutput(), cur != dev, muted(cur) == true {
-            ok = restore(cur) && ok
+        for (ch, v) in vols {
+            if setVolume(dev, v, ch) { log("output volume restored") } else { ok = false }
         }
         if !ok {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                if self.muted(dev) == true, self.set(dev, false) { log("output restored (retry)") }
-                if let cur = self.defaultOutput(), cur != dev, self.muted(cur) == true, self.set(cur, false) { log("output restored (current)") }
+                for ch in mChs where self.muted(dev, ch) == true {
+                    if self.setMute(dev, false, ch) { log("output restored (retry)") }
+                }
+                for (ch, v) in vols {
+                    _ = self.setVolume(dev, v, ch)
+                }
             }
         }
     }
 }
 
 // Pauses NowPlaying media (Spotify, VLC, Apple Music, browser video) when a take starts and resumes it after
-// the post-response hold ends, so Roamies' own spoken replies stay audible while other media stays quiet.
+// the post-response hold ends, so AI Assistant's own spoken replies stay audible while other media stays quiet.
 enum MediaPause {
     private static let handle = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_LAZY)
     private typealias GetIsPlayingFn = @convention(c) (DispatchQueue, @escaping @convention(block) (UInt8) -> Void) -> Void
@@ -365,26 +433,64 @@ enum MediaPause {
     private static let kMRPlay: UInt32 = 0
     private static let kMRPause: UInt32 = 1
     private static var pausedByUs = false
+    private static var pausedByMediaKey = false
     private static var holdActive = false
+
+    private static func isOutputRunning() -> Bool {
+        guard let dev = OutputMute.defaultOutput() else { return false }
+        var a = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyDeviceIsRunningSomewhere, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var running = UInt32(0), size = UInt32(MemoryLayout<UInt32>.size)
+        return AudioObjectGetPropertyData(dev, &a, 0, nil, &size, &running) == noErr && running != 0
+    }
+
+    private static func sendMediaPlayPauseKey() {
+        let key: Int32 = 16 // NX_KEYTYPE_PLAY
+        for isDown in [true, false] {
+            let flags = NSEvent.ModifierFlags(rawValue: isDown ? 0xa00 : 0xb00)
+            let data1 = Int((key << 16) | (isDown ? 0xa00 : 0xb00))
+            if let ev = NSEvent.otherEvent(with: .systemDefined, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil, subtype: 8, data1: data1, data2: -1) {
+                ev.cgEvent?.post(tap: .cghidEventTap)
+            }
+            if isDown { usleep(15_000) }
+        }
+    }
 
     static func beginHold() {
         holdActive = true
-        guard OutputMute.enabled, !pausedByUs, let get = getIsPlaying, let send = sendCmd else { return }
-        get(.main) { playing in
-            guard holdActive, playing != 0, !pausedByUs else { return }
-            if send(kMRPause, nil) {
-                pausedByUs = true
-                log("media paused while Roamies is active")
+        guard OutputMute.enabled, !pausedByUs, !pausedByMediaKey else { return }
+        if let get = getIsPlaying, let send = sendCmd {
+            get(.main) { playing in
+                guard holdActive, !pausedByUs, !pausedByMediaKey else { return }
+                // Remember only what we actually paused: if nothing is playing (playing == 0), never toggle Play/Pause.
+                guard playing != 0 else { return }
+                if send(kMRPause, nil) {
+                    pausedByUs = true
+                    log("media paused while AI Assistant is active")
+                } else if !OutputMute.didMuteHardware {
+                    sendMediaPlayPauseKey()
+                    pausedByMediaKey = true
+                    log("media paused via media key while AI Assistant is active")
+                }
             }
+        } else if !OutputMute.didMuteHardware, isOutputRunning() {
+            sendMediaPlayPauseKey()
+            pausedByMediaKey = true
+            log("media paused via media key while AI Assistant is active")
         }
     }
 
     static func endHold() {
         holdActive = false
-        guard pausedByUs else { return }
-        pausedByUs = false
-        if sendCmd?(kMRPlay, nil) == true {
-            log("media resumed")
+        if pausedByUs {
+            pausedByUs = false
+            if sendCmd?(kMRPlay, nil) == true {
+                log("media resumed")
+            }
+        }
+        if pausedByMediaKey {
+            pausedByMediaKey = false
+            sendMediaPlayPauseKey()
+            log("media resumed (media key)")
         }
     }
 }
@@ -403,6 +509,9 @@ final class Feed {
 enum InputDevice {
     enum WakeMicMode: String { case auto, builtin, bluetooth }
     static var wakeMode: WakeMicMode = .auto
+    static var selectedUID: String = ""
+    private static var listenerInstalled = false
+
     private static func addr(_ sel: AudioObjectPropertySelector, _ scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal) -> AudioObjectPropertyAddress {
         AudioObjectPropertyAddress(mSelector: sel, mScope: scope, mElement: kAudioObjectPropertyElementMain)
     }
@@ -411,16 +520,30 @@ enum InputDevice {
         var a = addr(kAudioHardwarePropertyDefaultInputDevice)
         return AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &a, 0, nil, &size, &id) == noErr && id != 0 ? id : nil
     }
+    private static func defaultOutput() -> AudioDeviceID? {
+        var id = AudioDeviceID(0), size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        var a = addr(kAudioHardwarePropertyDefaultOutputDevice)
+        return AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &a, 0, nil, &size, &id) == noErr && id != 0 ? id : nil
+    }
     private static func transport(_ dev: AudioDeviceID) -> UInt32? {
         var v = UInt32(0), size = UInt32(MemoryLayout<UInt32>.size)
         var a = addr(kAudioDevicePropertyTransportType)
         return AudioObjectGetPropertyData(dev, &a, 0, nil, &size, &v) == noErr ? v : nil
     }
-    private static func hasInput(_ dev: AudioDeviceID) -> Bool {
+    private static func cfStringProp(_ dev: AudioDeviceID, _ sel: AudioObjectPropertySelector) -> String? {
+        var cf: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        var a = addr(sel)
+        guard AudioObjectGetPropertyData(dev, &a, 0, nil, &size, &cf) == noErr, let s = cf?.takeRetainedValue() else { return nil }
+        return s as String
+    }
+    private static func hasStreams(_ dev: AudioDeviceID, _ scope: AudioObjectPropertyScope) -> Bool {
         var size = UInt32(0)
-        var a = addr(kAudioDevicePropertyStreams, kAudioDevicePropertyScopeInput)
+        var a = addr(kAudioDevicePropertyStreams, scope)
         return AudioObjectGetPropertyDataSize(dev, &a, 0, nil, &size) == noErr && size > 0
     }
+    private static func hasInput(_ dev: AudioDeviceID) -> Bool { hasStreams(dev, kAudioDevicePropertyScopeInput) }
+    private static func hasOutput(_ dev: AudioDeviceID) -> Bool { hasStreams(dev, kAudioDevicePropertyScopeOutput) }
     private static func all() -> [AudioDeviceID] {
         var size = UInt32(0)
         var a = addr(kAudioHardwarePropertyDevices)
@@ -428,8 +551,48 @@ enum InputDevice {
         var ids = [AudioDeviceID](repeating: 0, count: Int(size) / MemoryLayout<AudioDeviceID>.size)
         return AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &a, 0, nil, &size, &ids) == noErr ? ids : []
     }
-    /// The built-in mic when the default input is Bluetooth (unless wakeMode is .bluetooth); nil means use the default.
+    static func device(forUID uid: String, input: Bool) -> AudioDeviceID? {
+        guard !uid.isEmpty else { return nil }
+        return all().first { (input ? hasInput($0) : hasOutput($0)) && cfStringProp($0, kAudioDevicePropertyDeviceUID) == uid }
+    }
+    static func listAll() -> (inputs: [[String: Any]], outputs: [[String: Any]]) {
+        let defIn = defaultInput()
+        let defOut = defaultOutput()
+        var inputs: [[String: Any]] = []
+        var outputs: [[String: Any]] = []
+        for dev in all() {
+            guard let uid = cfStringProp(dev, kAudioDevicePropertyDeviceUID),
+                  let name = cfStringProp(dev, kAudioObjectPropertyName), !uid.isEmpty, !name.isEmpty else { continue }
+            let builtin = transport(dev) == kAudioDeviceTransportTypeBuiltIn
+            if hasInput(dev) {
+                inputs.append(["uid": uid, "name": name, "builtin": builtin, "default": dev == defIn])
+            }
+            if hasOutput(dev) {
+                outputs.append(["uid": uid, "name": name, "builtin": builtin, "default": dev == defOut])
+            }
+        }
+        return (inputs, outputs)
+    }
+    static func emitList() {
+        let list = listAll()
+        emit(["type": "audio_devices", "inputs": list.inputs, "outputs": list.outputs])
+    }
+    static func installListeners() {
+        guard !listenerInstalled else { return }
+        listenerInstalled = true
+        for sel in [kAudioHardwarePropertyDevices, kAudioHardwarePropertyDefaultInputDevice, kAudioHardwarePropertyDefaultOutputDevice] {
+            var a = addr(sel)
+            AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &a, DispatchQueue.main) { _, _ in
+                emitList()
+            }
+        }
+    }
+    static func forTake() -> AudioDeviceID? {
+        device(forUID: selectedUID, input: true)
+    }
+    /// Override mic if configured, else the built-in mic when the default input is Bluetooth (unless wakeMode is .bluetooth); nil means use the default.
     static func forWake() -> AudioDeviceID? {
+        if let fixed = device(forUID: selectedUID, input: true) { return fixed }
         guard wakeMode != .bluetooth else { return nil }
         guard let dev = defaultInput(), let t = transport(dev), t == kAudioDeviceTransportTypeBluetooth || t == kAudioDeviceTransportTypeBluetoothLE else { return nil }
         return all().first { transport($0) == kAudioDeviceTransportTypeBuiltIn && hasInput($0) }
@@ -438,6 +601,89 @@ enum InputDevice {
         guard let unit = input.audioUnit else { return false }
         var id = dev
         return AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &id, UInt32(MemoryLayout<AudioDeviceID>.size)) == noErr
+    }
+}
+
+/// Dedicated playback engine for TTS when an explicit macOS output device UID is configured.
+final class SpeakerOutput {
+    static let shared = SpeakerOutput()
+    private var deviceUID: String = ""
+    private var engine: AVAudioEngine?
+    private var player: AVAudioPlayerNode?
+    private var activeId: String?
+    private var currentFormat: AVAudioFormat?
+
+    func setDeviceUID(_ uid: String) {
+        if uid == deviceUID { return }
+        deviceUID = uid
+        stop()
+        tearDown()
+    }
+
+    private func tearDown() {
+        player?.stop()
+        engine?.stop()
+        player = nil
+        engine = nil
+        currentFormat = nil
+    }
+
+    private func ensureEngine(rate: Double) -> (AVAudioPlayerNode, AVAudioFormat)? {
+        if let eng = engine, let pl = player, let fmt = currentFormat, fmt.sampleRate == rate, eng.isRunning {
+            return (pl, fmt)
+        }
+        tearDown()
+        let eng = AVAudioEngine()
+        let pl = AVAudioPlayerNode()
+        eng.attach(pl)
+        if !deviceUID.isEmpty, var devId = InputDevice.device(forUID: deviceUID, input: false),
+           let unit = eng.outputNode.audioUnit {
+            let err = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &devId, UInt32(MemoryLayout<AudioDeviceID>.size))
+            if err != noErr { log("speaker output device set failed: \(err)") }
+        }
+        guard let fmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: rate, channels: 1, interleaved: false) else { return nil }
+        eng.connect(pl, to: eng.mainMixerNode, format: fmt)
+        do {
+            eng.prepare()
+            try eng.start()
+            pl.play()
+            engine = eng
+            player = pl
+            currentFormat = fmt
+            return (pl, fmt)
+        } catch {
+            log("speaker engine start failed: \(error)")
+            return nil
+        }
+    }
+
+    func playPCM(id: String, base64: String, rate: Double) {
+        guard !deviceUID.isEmpty else { return }
+        if activeId != id {
+            player?.stop()
+            player?.play()
+            activeId = id
+        }
+        guard let data = Data(base64Encoded: base64), data.count >= 2 else { return }
+        let sampleRate = rate > 0 ? rate : 44100
+        guard let (pl, fmt) = ensureEngine(rate: sampleRate) else { return }
+        let frames = data.count / 2
+        guard let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(frames)) else { return }
+        buf.frameLength = AVAudioFrameCount(frames)
+        guard let dst = buf.floatChannelData?[0] else { return }
+        data.withUnsafeBytes { raw in
+            let src = raw.bindMemory(to: Int16.self)
+            for i in 0 ..< frames {
+                dst[i] = Float(Int16(littleEndian: src[i])) / 32768.0
+            }
+        }
+        pl.scheduleBuffer(buf, completionHandler: nil)
+        if !pl.isPlaying { pl.play() }
+    }
+
+    func stop() {
+        activeId = nil
+        player?.stop()
     }
 }
 
@@ -593,6 +839,8 @@ final class Voice {
     private var engineFormat: AVAudioFormat?
     private var audioDevice: AudioDeviceID?
     private var reconfigWork: DispatchWorkItem?
+    private var wakeReconfigCount = 0
+    private var wakeReconfigWindowAt = 0.0
     // Kept across sessions (same mic, usually), so later takes start at the right boost.
     private let autoGain = AutoGain()
     private var rec: Recognizer?
@@ -764,7 +1012,7 @@ final class Voice {
         if dryRun { best = ProcessInfo.processInfo.environment["ROAMIES_VOICE_DRYRUN_TEXT"] ?? ""; return }
         // Already allowed: start the mic now so the first word isn't lost. Otherwise wait until
         // the press is clearly a talk (hold or tap), so shortcuts like ⌃⌥S never trigger a prompt.
-        if authorized { startAudio() }
+        if authorized { startAudio(device: InputDevice.forTake()) }
     }
 
     private var authorized: Bool {
@@ -776,12 +1024,12 @@ final class Voice {
         if !dryRun && rec == nil {
             ensureAuthorized { [weak self] in
                 guard let self, self.phase == .holding || self.phase == .handsFree, self.rec == nil else { return }
-                self.startAudio()
+                self.startAudio(device: InputDevice.forTake())
             }
         }
         if !dryRun {
-            MediaPause.beginHold()
             OutputMute.begin()
+            MediaPause.beginHold()
         }
         wave.show()
         // wave: the cursor shows the listening, so the app shows no listening bubble.
@@ -883,7 +1131,18 @@ final class Voice {
         guard on != wakeOn else { return }
         wakeOn = on
         log("wake word \(on ? "on" : "off")")
-        if !on { stopWake() }
+        if !on { stopWake(); return }
+        wakeRetryAt = 0
+        wakeCooldownUntil = 0
+        if !authorized {
+            ensureAuthorized { [weak self] in
+                guard let self, self.wakeOn, self.phase == .idle, self.wakeAllowed(uptime()) else { return }
+                self.startWake(uptime())
+            }
+            return
+        }
+        let now = uptime()
+        if phase == .idle && wakeAllowed(now) { startWake(now) }
     }
 
     // Never asks for permission: wake listening starts only once talking has been allowed.
@@ -893,6 +1152,7 @@ final class Voice {
 
     private func startWake(_ now: Double) {
         wakeRetryAt = now + 5 // if the mic won't open, try again in a moment rather than every frame
+        wakeReconfigCount = 0; wakeReconfigWindowAt = now
         phase = .wake
         best = ""; wakeText = ""; wakeMiss = nil; woke = false; wakeLoud = 0
         wakeAt = now; heardAt = now; voiceAt = now
@@ -1038,14 +1298,11 @@ final class Voice {
         }
         engine = eng
         engineFormat = format
-        // A mic plugged in or out, or a Bluetooth headset switching A2DP -> HFP/SCO, stops the engine.
-        // Wake restarts cleanly; an active take re-attaches the tap to the new hardware format.
+        // A mic plugged in or out, or a Bluetooth headset switching A2DP -> HFP/SCO, stops or reconfigures the engine.
+        // Re-attach/resume in place so Bluetooth doesn't bounce HFP <-> A2DP every few seconds.
         configObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: eng, queue: .main) { [weak self] _ in
             guard let self, self.engine === eng else { return }
-            if self.phase == .wake {
-                wakeLog("audio devices changed")
-                self.stopWake()
-            } else if self.phase == .armed || self.phase == .holding || self.phase == .handsFree || self.phase == .finishing {
+            if self.phase == .wake || self.phase == .armed || self.phase == .holding || self.phase == .handsFree || self.phase == .finishing {
                 self.scheduleAudioReconfigure()
             }
         }
@@ -1056,31 +1313,56 @@ final class Voice {
         reconfigWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            guard self.phase == .armed || self.phase == .holding || self.phase == .handsFree || self.phase == .finishing,
+            let isWake = self.phase == .wake
+            guard (isWake || self.phase == .armed || self.phase == .holding || self.phase == .handsFree || self.phase == .finishing),
                   self.rec != nil else { return }
-            if let eng = self.engine {
+            let targetDevice = isWake ? InputDevice.forWake() : InputDevice.forTake()
+            if let eng = self.engine, (!isWake || targetDevice == self.audioDevice) {
                 let cur = eng.inputNode.outputFormat(forBus: 0)
                 if cur == self.engineFormat {
                     if eng.isRunning {
-                        log("audio configuration changed during take; engine still running with same format")
+                        if !isWake { log("audio configuration changed during take; engine still running with same format") }
                         return
                     }
                     do {
                         eng.prepare()
                         try eng.start()
-                        log("audio configuration changed during take; resumed existing engine")
+                        if isWake { wakeLog("audio configuration changed; resumed existing engine") }
+                        else { log("audio configuration changed during take; resumed existing engine") }
                         return
                     } catch {
-                        log("audio configuration changed during take; resume failed: \(error)")
+                        if isWake { wakeLog("audio configuration changed; resume failed: \(error)") }
+                        else { log("audio configuration changed during take; resume failed: \(error)") }
                     }
                 }
             }
-            log("audio configuration changed during take; restarting engine")
+            if isWake {
+                let now = uptime()
+                if now - self.wakeReconfigWindowAt > 10 {
+                    self.wakeReconfigWindowAt = now
+                    self.wakeReconfigCount = 0
+                }
+                self.wakeReconfigCount += 1
+                if self.wakeReconfigCount > 3 {
+                    wakeLog("audio devices kept changing; pausing wake")
+                    self.stopWake()
+                    self.wakeRetryAt = now + 30
+                    return
+                }
+                self.audioDevice = targetDevice
+                wakeLog("audio devices changed; restarting engine")
+            } else {
+                log("audio configuration changed during take; restarting engine")
+            }
             self.tearDownEngine()
             let ingest = self.makeIngest()
             if !self.attachAndStartEngine(device: self.audioDevice, ingest: ingest) {
                 if retry {
                     self.scheduleAudioReconfigure(retry: false)
+                } else if isWake {
+                    wakeLog("couldn't restart (no_input)")
+                    self.stopWake()
+                    self.wakeRetryAt = uptime() + 30
                 } else {
                     emit(["type": "error", "code": "no_input"])
                     self.cancel()
@@ -1404,6 +1686,27 @@ Thread.detachNewThread {
             if let raw = msg["mode"] as? String, let mode = InputDevice.WakeMicMode(rawValue: raw) {
                 DispatchQueue.main.async { InputDevice.wakeMode = mode; log("wake mic: \(raw)") }
             }
+        case "list_devices":
+            DispatchQueue.main.async { InputDevice.emitList() }
+        case "input_device":
+            let uid = msg["uid"] as? String ?? ""
+            DispatchQueue.main.async {
+                InputDevice.selectedUID = uid
+                log("input device: \(uid.isEmpty ? "default" : uid)")
+            }
+        case "output_device":
+            let uid = msg["uid"] as? String ?? ""
+            DispatchQueue.main.async {
+                SpeakerOutput.shared.setDeviceUID(uid)
+                log("output device: \(uid.isEmpty ? "default" : uid)")
+            }
+        case "speak_pcm":
+            let id = msg["id"] as? String ?? ""
+            let pcm = msg["pcm"] as? String ?? ""
+            let rate = msg["rate"] as? Double ?? 44100
+            DispatchQueue.main.async { SpeakerOutput.shared.playPCM(id: id, base64: pcm, rate: rate) }
+        case "speak_stop":
+            DispatchQueue.main.async { SpeakerOutput.shared.stop() }
         case "audio_hold":
             let on = msg["on"] as? Bool == true
             DispatchQueue.main.async { if on { MediaPause.beginHold() } else { MediaPause.endHold() } }
@@ -1424,6 +1727,10 @@ for sig in [SIGTERM, SIGINT, SIGHUP] {
     signalSources.append(src)
 }
 emit(["type": "ready", "engine": voice.engineName, "dryRun": dryRun])
+DispatchQueue.main.async {
+    InputDevice.installListeners()
+    InputDevice.emitList()
+}
 // An app run loop (no Dock icon) so the drawing panels get mouse events.
 NSApplication.shared.setActivationPolicy(.accessory)
 NSApplication.shared.run()

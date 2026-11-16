@@ -7,14 +7,15 @@ const mac = aboutRoamies({ ...base, mac: true, snap: true, pointer: true, voice:
 const win = aboutRoamies(base);
 const linux = aboutRoamies({ ...base, linux: true, voice: true });
 assert.match(mac, /lives in the menu bar at the top of the screen/);
-assert.match(mac, /Show JARVIS, Ask JARVIS…, Ask About an Area…, Stop, Quit Roamies/);
+assert.match(mac, /Show JARVIS, Ask JARVIS…, Ask About an Area…, Stop, Quit AI Assistant/);
+assert.match(mac, /By Jean-Marc Seguin, Visual aspects by Ken Kai/);
 assert.match(mac, /Look: Roamie, JARVIS or Anime Girl/);
-assert.match(mac, /Wake word \(say "Hey Roamies"/);
+assert.match(mac, /Wake word \(say "Hey AI Assistant"/);
 assert.match(mac, /Voice Provider: Fish Audio, Gemini or VoiceStudio/);
 assert.match(win, /bottom right of the taskbar/);
 assert.ok(!/Ask About an Area|Wake word|Voice Control|Cursor, a little arrow/.test(win), 'features this copy lacks are left out');
 assert.match(linux, /AppIndicator extension/);
-assert.match(linux, /installs? by themselves when Roamies runs as an AppImage/);
+assert.match(linux, /installs? by themselves when AI Assistant runs as an AppImage/);
 assert.ok(!/Wake word/.test(linux), 'the wake word is Mac only');
 for (const t of [mac, win, linux]) {
   assert.match(t, /Save Diagnostics/);

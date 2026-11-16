@@ -516,7 +516,7 @@ const HARD_BLOCKED_BUNDLES = new Set([
   'com.apple.scripteditor2', 'com.apple.automator',
 ]);
 const TERMINAL_APP_NAMES = new Set([
-  'terminal', 'iterm', 'iterm2', 'headr', 'warp', 'ghostty', 'kitty', 'alacritty', 'wezterm', 'hyper', 'tabby', 'rio',
+  'terminal', 'iterm', 'iterm2', 'herdr', 'warp', 'ghostty', 'kitty', 'alacritty', 'wezterm', 'hyper', 'tabby', 'rio',
 ]);
 const TERMINAL_BUNDLES = new Set([
   'com.apple.terminal', 'com.googlecode.iterm2', 'dev.warp.warp-stable', 'dev.warp.warp',
@@ -530,7 +530,7 @@ export function normalizeAppKey(nameOrBundle) {
   if (!s) return '';
   if (s === 'iterm' || s === 'iterm2' || s === 'com.googlecode.iterm2') return 'iterm2';
   if (s === 'terminal' || s === 'com.apple.terminal') return 'terminal';
-  if (s === 'headr') return 'headr';
+  if (s === 'herdr') return 'herdr';
   if (s === 'antigravity') return 'antigravity';
   return s;
 }

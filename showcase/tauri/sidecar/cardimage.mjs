@@ -12,9 +12,9 @@ export const imageDir = (home = os.homedir()) => (existsSync(path.join(home, 'Do
 
 /** A safe file name from a card's title and the time: "Roamies – planets – 2026-11-12 15.04.09.png". */
 export function imageName(title, at = new Date()) {
-  const t = String(title ?? '').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/^[\s.]+|[\s.]+$/g, '').replace(/\s+/g, ' ').slice(0, 40) || 'card';
+  const t = String(title ?? '').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/^[\s.]+|[\s.]+$/g, '').replace(/\s+/g, ' ').slice(0, 35) || 'card';
   const p = (n) => String(n).padStart(2, '0');
-  return `Roamies – ${t} – ${at.getFullYear()}-${p(at.getMonth() + 1)}-${p(at.getDate())} ${p(at.getHours())}.${p(at.getMinutes())}.${p(at.getSeconds())}.png`;
+  return `AI Assistant – ${t} – ${at.getFullYear()}-${p(at.getMonth() + 1)}-${p(at.getDate())} ${p(at.getHours())}.${p(at.getMinutes())}.${p(at.getSeconds())}.png`;
 }
 
 /** Base64 PNG from the overlay → the saved file's path. Anything that isn't a PNG, or is too big, is refused. */

@@ -2,7 +2,7 @@
 # JSON. Built by build.sh and bundled as binaries/roamies-hands-<target>.exe. Only logic.rs builds elsewhere,
 # so `cargo test` runs its checks on any system.
 [package]
-name = "roamies-hands"
+name = "ai_assistant-hands"
 version = "0.1.0"
 edition = "2021"
 license = "AGPL-3.0-only"

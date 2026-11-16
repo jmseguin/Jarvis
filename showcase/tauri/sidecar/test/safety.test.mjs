@@ -416,7 +416,7 @@ console.log('safety loophole tests: passed');
   const { checkAppControl, isTerminalApp, normalizeAppKey } = await import('../safety.mjs');
   assert.equal(normalizeAppKey('iTerm'), 'iterm2');
   assert.equal(normalizeAppKey('iTerm2'), 'iterm2');
-  assert.equal(isTerminalApp('Headr'), true);
+  assert.equal(isTerminalApp('Herdr'), true);
   assert.equal(isTerminalApp('iTerm2'), true);
   assert.equal(isTerminalApp('Antigravity'), false);
 
@@ -429,7 +429,7 @@ console.log('safety loophole tests: passed');
 
   // Unapproved app asks first.
   assert.equal(checkAppControl({ app: 'iTerm2', steps: typeOnly }, { allowActions: true }).level, ASK);
-  assert.equal(checkAppControl({ app: 'Headr', steps: typeOnly }, { allowActions: true }).level, ASK);
+  assert.equal(checkAppControl({ app: 'Herdr', steps: typeOnly }, { allowActions: true }).level, ASK);
   assert.equal(checkAppControl({ app: 'Antigravity', steps: typeOnly }, { allowActions: true }).level, ASK);
 
   // Approved permanently or for session: typing without Enter is SAFE, pressing Enter asks when confirmBeforeEnter=true.
@@ -437,7 +437,7 @@ console.log('safety loophole tests: passed');
   assert.equal(checkAppControl({ app: 'iTerm2', steps: typeOnly }, withAlways).level, SAFE);
   assert.equal(checkAppControl({ app: 'iTerm2', steps: typeAndEnter }, withAlways).level, ASK);
 
-  const withSessionNoConfirm = { allowActions: true, sessionApps: { headr: { mode: 'session' } }, confirmBeforeEnter: false };
-  assert.equal(checkAppControl({ app: 'Headr', steps: typeAndEnter }, withSessionNoConfirm).level, SAFE);
+  const withSessionNoConfirm = { allowActions: true, sessionApps: { herdr: { mode: 'session' } }, confirmBeforeEnter: false };
+  assert.equal(checkAppControl({ app: 'Herdr', steps: typeAndEnter }, withSessionNoConfirm).level, SAFE);
   console.log('checkAppControl tests: passed');
 }

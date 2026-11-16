@@ -22,7 +22,7 @@ thread_local! {
 }
 
 pub(crate) fn voice_binary() -> Option<PathBuf> {
-    helper_binary("roamies-voice")
+    helper_binary("ai_assistant-voice")
 }
 
 pub(crate) fn start_voice(app: &AppHandle) {
@@ -274,6 +274,7 @@ fn handle_voice(app: &AppHandle, msg: Value) {
             m["type"] = json!("voice_error");
             to_sidecar(app, &m);
         }
+        Some("audio_devices") => to_sidecar(app, &msg),
         _ => {}
     }
 }
