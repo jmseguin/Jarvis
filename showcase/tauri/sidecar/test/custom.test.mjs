@@ -161,12 +161,12 @@ assert.doesNotMatch(reachWhy(new TypeError('fetch failed')), /\(\)|undefined/, '
   r = await saveCustom(auth, { ...form, key: '', keepKey: true, model: 'other' }, { saved: savedCred, test: pass });
   assert.equal(r.ok, true); assert.equal(stored[0][2], 'sk-saved-key');
   r = await saveCustom(auth, { ...form, key: '', keepKey: true, address: 'https://llm.example.com/other/v2' }, { saved: savedCred, test: pass });
-  assert.equal(stored.at(-1)[2], 'sk-saved-key', 'a different path on the same server is still that server');
-  // ...but never goes to a different server.
+  assert.equal(stored.at(-1)[2], 'sk-saved-key', 'a different path keeps the key');
+  // ...and so does a provider that moves to a new address: it usually keeps its key.
   stored.length = 0;
   r = await saveCustom(auth, { ...form, key: '', keepKey: true, address: 'https://elsewhere.example.org/v1' }, { saved: savedCred, test: pass });
-  assert.deepEqual([r.ok, r.saved], [false, false]); assert.match(r.why, /changed the server/);
-  assert.equal(stored.length, 0);
+  assert.deepEqual([r.ok, r.saved], [true, true]);
+  assert.deepEqual(stored.at(-1), ['custom', 'https://elsewhere.example.org/v1', 'sk-saved-key'], 'the same key, at the new address');
   // A new key typed in wins; clearing the box (not "keep") means no key.
   r = await saveCustom(auth, { ...form, key: 'sk-new', keepKey: false }, { saved: savedCred, test: pass });
   assert.equal(stored.at(-1)[2], 'sk-new');

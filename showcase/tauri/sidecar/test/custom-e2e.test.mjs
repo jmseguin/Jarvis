@@ -103,9 +103,13 @@ try {
   s = await retry(() => saveCustom(store2, { ...form, key: '', keepKey: true }, { saved: stored }));
   assert.equal(s.ok, true, 'the saved key was used for the test');
   assert.equal(seen.at(-1).auth, `Bearer ${KEY}`);
-  s = await retry(() => saveCustom(store2, { ...form, address: 'https://elsewhere.example.org', key: '', keepKey: true }, { saved: stored }));
-  assert.deepEqual([s.ok, s.saved], [false, false], 'the saved key is not sent to a different server');
-  assert.equal((await store2.getCredentials(CUSTOM_KEY)).baseUrl, `${origin}/v1`, 'and nothing was overwritten');
+  // A provider that moves to a new address keeps its key (the test request is stubbed: no real network).
+  let tried = null;
+  s = await retry(() => saveCustom(store2, { ...form, address: 'https://new-home.example.org', key: '', keepKey: true }, { saved: stored, test: async (a) => { tried = a; return { ok: true }; } }));
+  assert.deepEqual([s.ok, s.saved], [true, true]);
+  assert.deepEqual([tried.baseUrl, tried.key], ['https://new-home.example.org/v1', KEY], 'tested with the saved key at the new address');
+  const moved = await store2.getCredentials(CUSTOM_KEY);
+  assert.deepEqual([moved.baseUrl, moved.accessToken], ['https://new-home.example.org/v1', KEY], 'and stored that way');
 } finally {
   clearRuntimeModels((m) => m.authStorageKeys?.includes(CUSTOM_KEY));
   cleanup();

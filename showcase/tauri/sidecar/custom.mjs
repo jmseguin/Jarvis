@@ -109,19 +109,17 @@ export async function testCustom({ baseUrl, key, model }, { fetchImpl = fetch, t
 /**
  * Saves what the form holds, then tests it, and says how it went. The settings are kept whatever the test says (so
  * they never "disappear" because a server was down for a minute); only a form that can't be read at all saves
- * nothing, and says why. `input.keepKey`: the key box was left as it was shown (masked), so the saved key stays, but only
- * for the same server: a key is never quietly sent to a different one. `saved`: the stored credential ({ accessToken,
- * baseUrl }) or null. → { ok, why, saved, value? }: ok is the test's result, saved is whether anything was kept.
+ * nothing, and says why. `input.keepKey`: the key box was left as shown (masked), so the saved key stays, whatever
+ * else changed: a provider that moves to a new address usually keeps its key. `saved`: the stored credential
+ * ({ accessToken, baseUrl }) or null. → { ok, why, saved, value? }: ok is the test's result, saved is whether
+ * anything was kept.
  */
 export async function saveCustom(auth, input, { saved = null, test = testCustom } = {}) {
   const r = cleanCustom(input);
   if (!r.ok) return { ok: false, saved: false, why: r.why };
   const { name, baseUrl, model } = r.value;
   let key = r.value.key;
-  if (!key && input?.keepKey && saved?.accessToken && saved.accessToken !== 'local') {
-    if (hostOf(saved.baseUrl) !== hostOf(baseUrl)) return { ok: false, saved: false, why: 'You changed the server, so paste its API key again. The saved key stays with the old server.' };
-    key = saved.accessToken;
-  }
+  if (!key && input?.keepKey && saved?.accessToken && saved.accessToken !== 'local') key = saved.accessToken;
   await auth.setLocalEndpoint(CUSTOM_ID, baseUrl, key || undefined);
   const t = await test({ baseUrl, key, model });
   return { ok: t.ok, why: t.ok ? '' : t.why, saved: true, value: { name, baseUrl, model } };
