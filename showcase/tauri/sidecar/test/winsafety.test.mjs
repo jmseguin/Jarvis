@@ -72,7 +72,7 @@ test('Registry: reads are fine, HKCU writes ask, startup/policy/HKLM changes are
   ]);
 });
 
-test('Process: listing is fine, closing asks, Windows and Roamies are protected', () => {
+test('Process: listing is fine, closing asks, Windows and AI Assistant are protected', () => {
   table('process', checkProcess, [
     [{ mode: 'list' }, SAFE],
     [{ mode: 'kill', name: 'notepad' }, ASK],
@@ -81,7 +81,7 @@ test('Process: listing is fine, closing asks, Windows and Roamies are protected'
     [{ mode: 'kill', name: 'lsass.exe' }, BLOCK],
     [{ mode: 'kill', name: 'Explorer.EXE' }, BLOCK],
     [{ mode: 'kill', name: 'node' }, BLOCK],
-    [{ mode: 'kill', name: 'roamies' }, BLOCK],
+    [{ mode: 'kill', name: 'ai_assistant' }, BLOCK],
     [{ mode: 'kill', pid: 4 }, BLOCK],
     [{ mode: 'kill', pid: 0 }, BLOCK],
     [{ mode: 'kill' }, BLOCK],

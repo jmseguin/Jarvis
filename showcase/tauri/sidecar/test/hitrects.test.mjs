@@ -1,11 +1,11 @@
-// The click shape of the overlay on Linux (showcase/roamies/core.js: Roamie.hitRects). Run: npm test
+// The click shape of the overlay on Linux (showcase/overlay/core.js: Roamie.hitRects). Run: npm test
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
 const noop = () => {};
 const window = {};
-vm.runInNewContext(fs.readFileSync(new URL('../../../roamies/core.js', import.meta.url), 'utf8'), {
+vm.runInNewContext(fs.readFileSync(new URL('../../../overlay/core.js', import.meta.url), 'utf8'), {
   window, Math, Map, performance, matchMedia: () => ({ matches: false, addEventListener: noop }), addEventListener: noop, document: { addEventListener: noop },
 });
 const { hitRects } = window.Roamie;

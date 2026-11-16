@@ -1,4 +1,4 @@
-// Models served by Ollama on this computer. gg-core finds them and talks to them; this picks the ones Roamies can
+// Models served by Ollama on this computer. gg-core finds them and talks to them; this picks the ones AI Assistant can
 // use and keeps their context window honest.
 import {
   DEFAULT_LOCAL_ENDPOINTS, clearRuntimeModels, localAuthStorageKey, probeEndpoint, registerRuntimeModels, toModelInfo,
@@ -12,7 +12,7 @@ export const MIN_CONTEXT = 32_768;
 // The window gg-core gives a model of this size (room for the prompt on small windows).
 export const withWindow = (info, contextWindow) => ({ ...info, contextWindow, maxOutputTokens: Math.max(512, Math.min(4096, Math.floor(contextWindow / 4))) });
 
-/** Models Roamies can run: it reads screenshots and drives tools, so both are needed. `windows`: measured contexts by id. */
+/** Models AI Assistant can run: it reads screenshots and drives tools, so both are needed. `windows`: measured contexts by id. */
 export const localModels = (probes, windows = new Map()) => probes.filter((p) => p.reachable).flatMap((p) => p.models
   .filter((m) => m.supportsImages && m.supportsTools)
   .map((m) => { const info = toModelInfo(m, p.endpoint); return !m.contextWindowKnown && windows.has(info.id) ? withWindow(info, windows.get(info.id)) : info; }));

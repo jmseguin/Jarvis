@@ -37,7 +37,7 @@ export function createMacosUiService({
   const requireHands = () => {
     requirePlatform();
     if (!hands) {
-      throw new Error(`${platformName} UI helper (roamies-hands) is not available in this environment.`);
+      throw new Error(`${platformName} UI helper (ai_assistant-hands) is not available in this environment.`);
     }
   };
 

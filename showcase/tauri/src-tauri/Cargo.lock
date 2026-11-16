@@ -18,6 +18,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ai_assistant"
+version = "0.2.8"
+dependencies = [
+ "global-hotkey",
+ "gtk",
+ "objc2",
+ "objc2-service-management",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-updater",
+ "x11rb",
+ "zbus",
+]
+
+[[package]]
 name = "alloc-no-stdlib"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2945,23 +2962,6 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "roamies"
-version = "0.2.8"
-dependencies = [
- "global-hotkey",
- "gtk",
- "objc2",
- "objc2-service-management",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-single-instance",
- "tauri-plugin-updater",
- "x11rb",
- "zbus",
 ]
 
 [[package]]

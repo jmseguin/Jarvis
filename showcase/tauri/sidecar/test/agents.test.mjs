@@ -63,7 +63,7 @@ assert.deepEqual(toolsFor('hacker', all), [], 'an unknown type gets nothing');
 
 // finish: short words, real files inside its own folder.
 {
-  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'roamies-agents-')));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'ai-assistant-agents-')));
   const dir = path.join(root, 'job'), out = path.join(root, 'Desktop');
   fs.mkdirSync(path.join(dir, 'files'), { recursive: true }); fs.mkdirSync(out);
   fs.writeFileSync(path.join(dir, 'files', 'index.html'), '<h1>hi</h1>');
@@ -227,8 +227,8 @@ assert.match(agentSystem('maker', { dir: '/x', returns: 'answer' }), /report is 
 }
 // The manager, with a fake fork: folders, states, limits, yes/no, finishing, stopping.
 {
-  const home = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'roamies-agentmgr-')));
-  const root = path.join(home, 'Roamies');
+  const home = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'ai-assistant-agentmgr-')));
+  const root = path.join(home, 'AI Assistant');
   let T = new Date(2026, 10, 13, 14, 5).getTime();
   const children = [], events = [], opened = [], revealed = [];
   const fork = (runner, args, opts) => {
@@ -398,7 +398,7 @@ assert.match(agentSystem('maker', { dir: '/x', returns: 'answer' }), /report is 
   assert.equal(fs.readFileSync(path.join(desk, 'card 2.txt'), 'utf8'), 'made');
   assert.ok(await mgr.openFile(g.id, path.join(desk, 'card 2.txt')), 'its delivered copy opens too');
   await assert.rejects(mgr.start({ type: 'maker', title: 'x', brief: 'x', deliver_to: '~/.ssh' }), /Can't deliver/);
-  // Next launch: one still marked working was cut off when Roamies closed.
+  // Next launch: one still marked working was cut off when AI Assistant closed.
   const live = await mgr.start({ type: 'maker', title: 'Cut off', brief: 'x' });
   mgr.stopAll();
   await tick();
@@ -407,7 +407,7 @@ assert.match(agentSystem('maker', { dir: '/x', returns: 'answer' }), /report is 
   const again = mk();
   await again.loaded;
   assert.equal(again.get(live.id).state, 'stopped');
-  assert.equal(again.get(live.id).reason, 'Roamies closed');
+  assert.equal(again.get(live.id).reason, 'AI Assistant closed');
   assert.equal(again.get(a.id).title, 'Dog brand landing page', 'earlier agents are known again');
   again.stopAll();
   await tick();

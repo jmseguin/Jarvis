@@ -10,7 +10,7 @@ const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 /** Where it goes: ~/Downloads, or the home folder where there isn't one. */
 export const imageDir = (home = os.homedir()) => (existsSync(path.join(home, 'Downloads')) ? path.join(home, 'Downloads') : home);
 
-/** A safe file name from a card's title and the time: "Roamies – planets – 2026-11-12 15.04.09.png". */
+/** A safe file name from a card's title and the time: "AI Assistant – planets – 2026-11-12 15.04.09.png". */
 export function imageName(title, at = new Date()) {
   const t = String(title ?? '').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/^[\s.]+|[\s.]+$/g, '').replace(/\s+/g, ' ').slice(0, 35) || 'card';
   const p = (n) => String(n).padStart(2, '0');

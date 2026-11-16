@@ -36,7 +36,7 @@ for (const [, id, label] of looks) assert.ok(guide.includes(`['${id}', '${label}
 const warns = [];
 globalThis.window = { Roamie: {} };
 const warn = console.warn; console.warn = (m) => warns.push(m);
-new Function(src('../../../roamies/people.js'))();
+new Function(src('../../../overlay/people.js'))();
 console.warn = warn;
 assert.deepEqual(warns, [], 'every sprite row is half or whole width');
 const P = window.Roamie.people;
@@ -59,20 +59,20 @@ assert.match(src('../../../desktop.html'), /canvas \{[^}]*-webkit-user-select: n
 
 // Regression: after a drawing the Sidekick stopped following the cursor and hopped away from it instead.
 {
-  const agent = src('../../../roamies/agent.js'), rel = agent.slice(agent.indexOf('async release()'), agent.indexOf('place: (x, y) =>'));
+  const agent = src('../../../overlay/agent.js'), rel = agent.slice(agent.indexOf('async release()'), agent.indexOf('place: (x, y) =>'));
   assert.match(agent, /pen\.follow = !!station\.byCursor/, 'take() remembers whether it was following the cursor');
   assert.match(rel, /if \(pen\.follow && presence\.ptr\) station\.byCursor = presence\.ptr\.slice\(\)/, 'release() goes back to following');
 }
 
 // The bubbles, tags and step list draw with glass.js, so the overlay loads it before them.
 {
-  const page = src('../../../desktop.html'), at = (f) => page.indexOf(`roamies/${f}`);
+  const page = src('../../../desktop.html'), at = (f) => page.indexOf(`overlay/${f}`);
   assert.ok(at('glass.js') > 0 && at('glass.js') < at('agent.js') && at('glass.js') < at('agent-cards.js'), 'desktop.html loads glass.js before agent.js and agent-cards.js');
 }
 
 // Regression: the hands trailed behind the body when it moved fast (they sprang after screen points, not body ones).
 {
-  const kit = src('../../../roamies/10-dither.js');
+  const kit = src('../../../overlay/10-dither.js');
   assert.match(kit, /spring\(h\.o, tg\[0\] \* R, tg\[1\] \* R/, 'hands spring in the body\'s own space');
   assert.match(kit, /h\.y = m\.y \+ oy \+ h\.o\.y/, 'and ride its hop once');
   assert.match(kit, /lerp\(sx, bx \+ h\.o\.x, arms\)/, 'hands are drawn from where the body is drawn');

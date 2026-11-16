@@ -29,7 +29,7 @@ const cfg = scrubConfig({ provider: 'anthropic', userName: 'Jane', fishKey: 'abc
 assert.deepEqual(cfg, { provider: 'anthropic', userName: '<redacted>', fishKey: '<redacted>', keys: { talk: ['control', 'option'], summon: 'Control+Alt+KeyS' }, sound: true, fishKeySaved: true, email: '' });
 
 // Long logs keep their newest lines, from a whole line.
-const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'roamies-diag-'));
+const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ai-assistant-diag-'));
 const big = path.join(dir, 'big.log');
 await fs.writeFile(big, Array.from({ length: 2000 }, (_, i) => `line ${i}`).join('\n') + '\n');
 const t = await tail(big, 1000);

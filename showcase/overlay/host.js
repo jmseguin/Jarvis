@@ -25,7 +25,7 @@
     hide: () => invoke('buddy', { msg: { on: false } }).catch(() => {}),
   };
   window.__roamieBuddy = (m) => { Roamie.wake?.(); Roamie.buddy.onEvent?.(m); };
-  // handsBusy: Roamies is acting in another app (it may take the real cursor), so clicks always go through.
+  // handsBusy: AI Assistant is acting in another app (it may take the real cursor), so clicks always go through.
   let hot = null, cursor = null, handsBusy = false;
   // Linux ("x11" or "wayland", set by the shell): clicks are let through by region instead (below).
   const LINUX = !!window.ROAMIE_LINUX;

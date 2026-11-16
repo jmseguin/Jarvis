@@ -4,7 +4,7 @@
 
 import { apiKeyStorageKeys, providerStorageKeys } from '@kenkaiiii/gg-core';
 
-/** Everywhere a provider's sign-in and keys are saved, so removing it from Roamies leaves none behind. */
+/** Everywhere a provider's sign-in and keys are saved, so removing it from AI Assistant leaves none behind. */
 export const accountKeys = (provider) => [...new Set([...providerStorageKeys(provider), ...apiKeyStorageKeys(provider)])];
 
 // Checked by hand: each opens the provider's own key page (or its console, where keys are made).

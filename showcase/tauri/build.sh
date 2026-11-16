@@ -1,12 +1,12 @@
 #!/bin/bash
 # Syncs the shared web files into dist/, then bundles with the Tauri CLI.
-# ./build.sh        release bundle (Roamies.app on macOS, the installer on Windows, .AppImage/.deb/.rpm on Linux)
+# ./build.sh        release bundle (AIAssistant.app on macOS, the installer on Windows, .AppImage/.deb/.rpm on Linux)
 # ./build.sh dev    debug binary only, faster
 set -euo pipefail
 cd "$(dirname "$0")"
 rm -rf dist && mkdir -p dist
 cp ../desktop.html dist/
-cp -R ../roamies ../onboarding ../panel dist/
+cp -R ../overlay ../onboarding ../panel dist/
 ../tauri/sidecar/bundle.sh
 # Ship a Node.js runtime with the app, for the target being built (--target <triple>, else this machine).
 TARGET=""; prev=""; for a in "$@"; do [ "$prev" = "--target" ] && TARGET="$a"; prev="$a"; done

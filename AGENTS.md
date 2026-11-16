@@ -1,7 +1,7 @@
 # AGENTS.md
 
 AI Assistant: a Tauri 2 desktop app (Rust shell in `showcase/tauri/src-tauri`), a Node sidecar that runs the
-agent (`showcase/tauri/sidecar`), shared browser JS in `showcase/roamies`, macOS Swift helpers built by
+agent (`showcase/tauri/sidecar`), shared browser JS in `showcase/overlay`, macOS Swift helpers built by
 `src-tauri/build.rs`, and two Windows helpers built by `build.sh` for Windows targets: voice
 (`src-tauri/voice-win`, Rust + Parakeet; `--transcribe <wav>` and `--test-audio <wav>` test speech without a
 Windows PC, see the top of its `main.rs`) and hands (`src-tauri/hands-win`, the twin of `hands/main.swift`: same
@@ -13,8 +13,8 @@ Linux (beta) uses the same voice helper (`voice-win` builds for Linux too: ALSA 
 `toggle` command for `ai_assistant --talk` on Wayland) and no hands helper. Its shell code is `src-tauri/src/linux.rs`:
 every window is an X11 window (`GDK_BACKEND=x11` on Wayland, through XWayland), the overlay lets clicks through by
 region (the page reports its click areas, `host.js` → `set_hit_rects`) instead of following the cursor, and
-screenshots, copying, Open at Login and AppImage-only updates live there. Debug aids: `ROAMIES_TRACE=1` prints the
-overlay's click areas, and in debug builds `ROAMIES_TEST_AUDIO=<wav>` stands in for the microphone.
+screenshots, copying, Open at Login and AppImage-only updates live there. Debug aids: `AI_ASSISTANT_TRACE=1` prints the
+overlay's click areas, and in debug builds `AI_ASSISTANT_TEST_AUDIO=<wav>` stands in for the microphone.
 
 ## Commands
 

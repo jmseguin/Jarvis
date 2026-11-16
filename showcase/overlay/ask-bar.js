@@ -1,5 +1,5 @@
 // Type to ask: a slim text field beside the cursor, opened by a tap of the typing shortcut, the Ask button, the tray
-// or `roamies --ask`. It rides with the cursor like the listening pill does (voice/wave.swift), so it's always where
+// or `ai_assistant --ask`. It rides with the cursor like the listening pill does (voice/wave.swift), so it's always where
 // you're looking and never in the way, and it's a real textarea: caret, selection, paste and IME just work.
 // The research card's look (agent-panel.js): the stepped pixel frame, dark glass, Martian Mono.
 // Click away with nothing typed and it closes; with something typed it waits where it is until you click it again.

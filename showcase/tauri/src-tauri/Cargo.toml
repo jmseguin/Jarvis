@@ -1,11 +1,11 @@
 [package]
-name = "roamies"
+name = "ai_assistant"
 version = "0.2.8"
 edition = "2021"
 license = "AGPL-3.0-only"
-description = "Roamies: AI desktop companions"
-repository = "https://github.com/KenKaiii/Roamies"
-homepage = "https://github.com/KenKaiii/Roamies"
+description = "AI Assistant: AI desktop companions"
+repository = "https://github.com/jmseguin/Jarvis"
+homepage = "https://github.com/jmseguin/Jarvis"
 
 [build-dependencies]
 tauri-build = { version = "=2.7.4", features = [] }

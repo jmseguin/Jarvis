@@ -1,4 +1,4 @@
-// Roamies drawing on screen: the Sidekick turns into its cursor and draws hand-drawn teal marks with its tip (the
+// AI Assistant drawing on screen: the Sidekick turns into its cursor and draws hand-drawn teal marks with its tip (the
 // same pen as the user's ⌃⌥ ink: teal, a dark edge so it reads on white, a soft glow), paced to its voice with a
 // caption at the bottom. Screen marks follow each thing's real shape; cards and diagrams go on calm space beside the
 // window and stay until closed. The sidecar (draw.mjs, tools.mjs) sends beats already checked and placed in global

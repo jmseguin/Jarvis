@@ -1,4 +1,4 @@
-// Menu-bar-only shell for the roamies. One transparent, always-on-top, click-through webview per
+// Menu-bar-only shell for the AI Assistant. One transparent, always-on-top, click-through webview per
 // monitor; a Node sidecar (gg-agent) is the brain and owns the tray menu, settings and logins.
 // No Dock icon (LSUIElement + Accessory policy) and no taskbar entries on Windows/Linux.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -82,7 +82,7 @@ static TYPING: AtomicBool = AtomicBool::new(false);
 static INK_WAIT: AtomicBool = AtomicBool::new(false);
 /// The type-to-ask pair as tap.rs bits (0: none, as on Wayland): a quick tap of it opens the text field by the cursor.
 static WRITE_CHORD: AtomicU8 = AtomicU8::new(0);
-/// The cursor is over something clickable in an overlay (a card, its buttons): a click there is on Roamies, not the app below.
+/// The cursor is over something clickable in an overlay (a card, its buttons): a click there is on AI Assistant, not the app below.
 pub(crate) static OVERLAY_HOT: AtomicBool = AtomicBool::new(false);
 static OUTPUT_OVERRIDE: AtomicBool = AtomicBool::new(false);
 
@@ -236,7 +236,7 @@ fn other_input_down() -> bool {
     false
 }
 
-/// Windows: leaves an overlay out of every capture, so Roamies never shows up in its own screenshots, area snaps
+/// Windows: leaves an overlay out of every capture, so AI Assistant never shows up in its own screenshots, area snaps
 /// or the pictures it reads text from.
 #[cfg(target_os = "windows")]
 fn exclude_from_capture(w: &WebviewWindow) {
@@ -336,7 +336,7 @@ fn set_typing(app: AppHandle, window: WebviewWindow, on: bool) {
         let _ = window.set_focus();
         #[cfg(target_os = "linux")]
         linux::activate(&window);
-        // Opened from a hotkey (e.g. after an area snap), Roamies isn't the active app and macOS 14+
+        // Opened from a hotkey (e.g. after an area snap), AI Assistant isn't the active app and macOS 14+
         // ignores plain focus requests, so make the overlay key directly, then ask to activate.
         #[cfg(target_os = "macos")]
         if let Ok(p) = window.ns_window() {
@@ -405,7 +405,7 @@ fn diagnostics(app: &AppHandle) -> Value {
         "webview": tauri::webview_version().ok(),
         "screens": screens,
         "primary": app.primary_monitor().ok().flatten().and_then(|m| m.name().cloned()),
-        "tray_icon": app.tray_by_id("roamies").and_then(|t| t.rect().ok().flatten()).map(rect),
+        "tray_icon": app.tray_by_id("ai_assistant").and_then(|t| t.rect().ok().flatten()).map(rect),
         "panel": panel,
         "windows": app.webview_windows().keys().cloned().collect::<Vec<_>>(),
         "voice_helper": voice_binary().map(|p| p.exists()),
@@ -474,7 +474,7 @@ async fn perm_request(kind: String) -> Value {
 #[tauri::command]
 fn open_settings(pane: String) {
     const PANES: [&str; 6] = ["Privacy_Microphone", "Privacy_SpeechRecognition", "Privacy_ScreenCapture", "Privacy_FilesAndFolders", "Privacy_AllFiles", "Privacy_Accessibility"];
-    // explorer hands ms-settings: links to the Settings app. Taskbar: where Roamies' tray icon is switched on.
+    // explorer hands ms-settings: links to the Settings app. Taskbar: where AI Assistant's tray icon is switched on.
     if cfg!(windows) && (pane == "privacy-microphone" || pane == "taskbar") {
         let _ = hide_console(&mut Command::new("explorer")).arg(format!("ms-settings:{pane}")).spawn();
         return;
@@ -507,7 +507,7 @@ async fn screen_check() -> Value {
 }
 
 /// Shows the hands helper's panel under System Settings for one Privacy pane ("accessibility" or
-/// "screen"): Roamies' icon to drag into the list, in case macOS left it out. Any other kind just
+/// "screen"): AI Assistant's icon to drag into the list, in case macOS left it out. Any other kind just
 /// closes it. The helper waits for Settings to open and leaves once its stdin (held here) closes.
 #[tauri::command]
 fn perm_guide(app: AppHandle, kind: Option<String>) {
@@ -516,7 +516,7 @@ fn perm_guide(app: AppHandle, kind: Option<String>) {
     {
         let Some(kind) = kind.filter(|k| k == "accessibility" || k == "screen") else { return };
         let Some(bin) = helper_binary("ai_assistant-hands") else { return };
-        // The Roamies.app around this binary; a dev build has none, so the panel shows text only.
+        // The AIAssistant.app around this binary; a dev build has none, so the panel shows text only.
         let bundle = std::env::current_exe()
             .ok()
             .and_then(|e| e.ancestors().find(|p| p.extension().is_some_and(|x| x == "app")).map(|p| p.to_string_lossy().into_owned()))
@@ -600,7 +600,7 @@ fn onboarding_finish(app: AppHandle, text: String) {
     if let Some(w) = app.get_webview_window(ONBOARDING_LABEL) {
         let _ = w.close();
     }
-    let tray = app.tray_by_id("roamies").and_then(|t| t.rect().ok().flatten());
+    let tray = app.tray_by_id("ai_assistant").and_then(|t| t.rect().ok().flatten());
     let app2 = app.clone();
     // Let the guide window finish closing first, so the drop-in is the only thing moving.
     thread::spawn(move || {
@@ -739,7 +739,7 @@ fn show_panel(app: &AppHandle, rect: Option<tauri::Rect>, toggle: bool) {
                 .maximizable(false)
                 .minimizable(false)
                 .decorations(false)
-                // macOS: the first click acts even while another app is active, instead of only activating Roamies.
+                // macOS: the first click acts even while another app is active, instead of only activating AI Assistant.
                 .accept_first_mouse(true)
                 .always_on_top(true)
                 .skip_taskbar(true)
@@ -769,7 +769,7 @@ fn show_panel(app: &AppHandle, rect: Option<tauri::Rect>, toggle: bool) {
             }
         }
     };
-    let rect = rect.or_else(|| app.tray_by_id("roamies").and_then(|t| t.rect().ok().flatten()));
+    let rect = rect.or_else(|| app.tray_by_id("ai_assistant").and_then(|t| t.rect().ok().flatten()));
     PANEL_FROM_BOTTOM.store(place_panel(app, &w, rect), Ordering::SeqCst);
     PANEL_GEN.fetch_add(1, Ordering::SeqCst);
     PANEL_CLOSING.store(false, Ordering::SeqCst);
@@ -845,7 +845,7 @@ fn tray_scale(app: &AppHandle) -> f64 {
         .ok()
         .flatten()
     };
-    app.tray_by_id("roamies").and_then(|t| read(&t)).filter(|k| *k > 0.0).unwrap_or(1.0)
+    app.tray_by_id("ai_assistant").and_then(|t| read(&t)).filter(|k| *k > 0.0).unwrap_or(1.0)
 }
 #[cfg(not(target_os = "macos"))]
 fn tray_scale(_app: &AppHandle) -> f64 {
@@ -862,7 +862,7 @@ fn set_panel_position(w: &WebviewWindow, x: f64, y: f64, _s: f64) {
 
 // ---------- setup guide window ----------
 
-/// While the setup guide is open Roamies is a normal app (Dock icon, ⌘Tab), so it's easy to get
+/// While the setup guide is open AI Assistant is a normal app (Dock icon, ⌘Tab), so it's easy to get
 /// back to after a trip to System Settings. Otherwise it lives only in the menu bar.
 fn set_dock(app: &AppHandle, visible: bool) {
     #[cfg(target_os = "macos")]
@@ -897,7 +897,7 @@ fn open_onboarding(app: &AppHandle, mode: Option<&str>) {
         .maximizable(false)
         .minimizable(false)
         .center()
-        // macOS: the first click acts even while another app is active, instead of only activating Roamies.
+        // macOS: the first click acts even while another app is active, instead of only activating AI Assistant.
         .accept_first_mouse(true)
         .focused(true)
         .background_color(tauri::window::Color(5, 16, 18, 255));
@@ -1086,7 +1086,7 @@ fn build_overlays(app: &AppHandle) -> tauri::Result<()> {
             .visible_on_all_workspaces(true)
             .skip_taskbar(true)
             // macOS: a click on its bubbles and buttons (Allow, Don't allow) acts even while another app is active,
-            // instead of only activating Roamies. It stays unfocusable: set_typing decides when it takes the keyboard.
+            // instead of only activating AI Assistant. It stays unfocusable: set_typing decides when it takes the keyboard.
             .accept_first_mouse(true)
             .focused(false)
             .focusable(false)
@@ -1189,7 +1189,7 @@ fn screens(monitors: &[tauri::Monitor]) -> Vec<Screen> {
     monitors.iter().map(|m| Screen { pos: (m.position().x, m.position().y), size: (m.size().width, m.size().height), scale: m.scale_factor() }).collect()
 }
 
-/// Why the overlays need building again, or None. `have` overlays are open and `roster` Roamies want one each, at
+/// Why the overlays need building again, or None. `have` overlays are open and `roster` AI Assistant want one each, at
 /// most one per screen. Never with no screens: while the only display sleeps macOS lists none (it lists active
 /// displays), and the overlays already made are kept for when it wakes.
 fn overlays_stale(built: &[Screen], now: &[Screen], have: usize, roster: usize) -> Option<&'static str> {
@@ -1205,7 +1205,7 @@ fn overlays_stale(built: &[Screen], now: &[Screen], have: usize, roster: usize) 
 }
 
 /// The overlays were built at launch and when the roster changed, and never again. Started while the only display
-/// slept, Roamies listed no screens, built no overlay and never showed the Roamie (it still talked); a screen plugged
+/// slept, AI Assistant listed no screens, built no overlay and never showed the Roamie (it still talked); a screen plugged
 /// in or taken away later wasn't followed either. So every 3 s, on the main thread, they're built again when one is
 /// missing or the screens changed.
 fn watch_screens(app: AppHandle) {
@@ -1360,7 +1360,7 @@ fn menu_items(app: &AppHandle, items: &[Value]) -> tauri::Result<Vec<Box<dyn IsM
 }
 
 fn set_menu(app: &AppHandle, items: &[Value]) {
-    let Some(tray) = app.tray_by_id("roamies") else { return };
+    let Some(tray) = app.tray_by_id("ai_assistant") else { return };
     let built = menu_items(app, items).and_then(|kids| {
         let refs: Vec<&dyn IsMenuItem<Wry>> = kids.iter().map(|b| b.as_ref()).collect();
         Menu::with_items(app, &refs)
@@ -1423,7 +1423,7 @@ fn login_item(app: &AppHandle, set: Option<bool>) {
     #[cfg(target_os = "macos")]
     let (supported, on, approval) = {
         use objc2_service_management::{SMAppService, SMAppServiceStatus};
-        let in_apps = exe_s.starts_with("/Applications/") || exe_s.contains("/Applications/Roamies.app/");
+        let in_apps = exe_s.starts_with("/Applications/") || exe_s.contains("/Applications/AIAssistant.app/");
         if !objc2::available!(macos = 13.0) || !installed || !in_apps {
             (false, false, false)
         } else {
@@ -1450,11 +1450,11 @@ fn login_item(app: &AppHandle, set: Option<bool>) {
             (false, false, false)
         } else {
             match set {
-                Some(true) => { let v = format!("\"{}\"", exe.display()); reg(&["add", KEY, "/v", "Roamies", "/t", "REG_SZ", "/d", &v, "/f"]); }
-                Some(false) => { reg(&["delete", KEY, "/v", "Roamies", "/f"]); }
+                Some(true) => { let v = format!("\"{}\"", exe.display()); reg(&["add", KEY, "/v", "AI Assistant", "/t", "REG_SZ", "/d", &v, "/f"]); }
+                Some(false) => { reg(&["delete", KEY, "/v", "AI Assistant", "/f"]); }
                 None => {}
             }
-            (true, reg(&["query", KEY, "/v", "Roamies"]), false)
+            (true, reg(&["query", KEY, "/v", "AI Assistant"]), false)
         }
     };
     #[cfg(target_os = "linux")]
@@ -1598,9 +1598,9 @@ fn handle_sidecar(app: &AppHandle, msg: Value) {
             }
             to_sidecar(app, &json!({ "type": "clipboard_done", "id": msg.get("id"), "ok": msg.get("text").is_some_and(Value::is_string) }));
         }
-        // `roamies --talk` (Linux): start a take, or send the one under way.
+        // `ai_assistant --talk` (Linux): start a take, or send the one under way.
         Some("talk_toggle") => to_voice(app, &json!({ "cmd": "toggle" })),
-        // Roamies is answering or speaking: the wake word waits, so it can't wake itself.
+        // AI Assistant is answering or speaking: the wake word waits, so it can't wake itself.
         Some("wake_hold") => to_voice(app, &json!({ "cmd": "wake_hold", "on": msg.get("on").and_then(Value::as_bool) == Some(true) })),
         // Keep other media paused across thinking, speaking and the post-response follow-up window.
         Some("audio_hold") => to_voice(app, &json!({ "cmd": "audio_hold", "on": msg.get("on").and_then(Value::as_bool) == Some(true) })),
@@ -1650,7 +1650,7 @@ fn handle_sidecar(app: &AppHandle, msg: Value) {
     }
 }
 
-/// What a second launch asks the running app to do: `roamies --summon | --list | --talk | --ask | --panel`. They're
+/// What a second launch asks the running app to do: `ai_assistant --summon | --list | --talk | --ask | --panel`. They're
 /// for binding to keys in the desktop's keyboard settings, the one kind of global shortcut Wayland lets every app
 /// have. None: a plain launch.
 fn cli_action(args: &[String]) -> Option<&'static str> {
@@ -1660,7 +1660,7 @@ fn cli_action(args: &[String]) -> Option<&'static str> {
 
 /// A second launch quit and handed its arguments over (the single-instance plugin). A plain one summons the
 /// Roamie and, on Windows and Linux, opens the panel: Windows 11 hides a new tray icon behind the ^ arrow and many
-/// Linux desktops show none, so opening Roamies again from the Start menu or the app list is the way in.
+/// Linux desktops show none, so opening AI Assistant again from the Start menu or the app list is the way in.
 fn second_launch(app: &AppHandle, args: &[String]) {
     match cli_action(args) {
         Some("summon") => to_overlays(app, &json!({ "kind": "summon" })),
@@ -1710,7 +1710,7 @@ fn main() {
             let quit = MenuItem::with_id(app, "quit", "Quit AI Assistant", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&starting, &quit])?;
             // Left click opens the panel; right click shows the short menu.
-            let mut tray = TrayIconBuilder::with_id("roamies")
+            let mut tray = TrayIconBuilder::with_id("ai_assistant")
                 .tooltip("AI Assistant")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
@@ -1747,7 +1747,7 @@ fn main() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("failed to run Roamies")
+        .expect("failed to run AI Assistant")
         .run(|_, e| {
             if matches!(e, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
                 sidecar::QUITTING.store(true, Ordering::SeqCst);
@@ -1762,13 +1762,13 @@ mod tests {
     #[test]
     fn a_second_launch_says_what_it_wants_with_one_flag() {
         let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert_eq!(cli_action(&args(&["roamies"])), None, "a plain launch");
+        assert_eq!(cli_action(&args(&["ai_assistant"])), None, "a plain launch");
         for f in ["summon", "list", "talk", "ask", "panel"] {
-            assert_eq!(cli_action(&args(&["/usr/bin/roamies", &format!("--{f}")])), Some(f));
+            assert_eq!(cli_action(&args(&["/usr/bin/ai_assistant", &format!("--{f}")])), Some(f));
         }
-        assert_eq!(cli_action(&args(&["roamies", "--verbose", "--talk"])), Some("talk"), "other arguments are skipped");
-        assert_eq!(cli_action(&args(&["roamies", "talk"])), None, "only as a flag");
-        assert_eq!(cli_action(&args(&["roamies", "--talks"])), None);
+        assert_eq!(cli_action(&args(&["ai_assistant", "--verbose", "--talk"])), Some("talk"), "other arguments are skipped");
+        assert_eq!(cli_action(&args(&["ai_assistant", "talk"])), None, "only as a flag");
+        assert_eq!(cli_action(&args(&["ai_assistant", "--talks"])), None);
         assert_eq!(cli_action(&args(&["--talk"])), None, "the first argument is the program");
         assert_eq!(cli_action(&args(&[])), None);
     }
@@ -1790,17 +1790,17 @@ mod tests {
         assert!(overlays_stale(&one, &[s(100, 1920)], 1, 1).is_some(), "moved in the arrangement");
         assert!(overlays_stale(&one, &[Screen { scale: 1.0, ..s(0, 1920) }], 1, 1).is_some(), "scale changed");
         assert_eq!(overlays_stale(&two, &two, 1, 1), None, "two screens and one Roamie: one overlay is all there is");
-        assert!(overlays_stale(&two, &two, 1, 2).is_some(), "two Roamies on two screens and one overlay: build");
+        assert!(overlays_stale(&two, &two, 1, 2).is_some(), "two AI Assistant on two screens and one overlay: build");
         // build_overlays puts every Roamie on one screen's overlay when there's one screen: counting one overlay per
         // Roamie there would rebuild every 3 s, forever.
-        assert_eq!(overlays_stale(&one, &one, 1, 2), None, "two Roamies on one screen: one overlay holds both");
-        assert!(overlays_stale(&one, &one, 0, 2).is_some(), "two Roamies on one screen and no overlay: build");
-        assert_eq!(overlays_stale(&one, &one, 0, 0), None, "no Roamies: no overlay is missing");
+        assert_eq!(overlays_stale(&one, &one, 1, 2), None, "two AI Assistant on one screen: one overlay holds both");
+        assert!(overlays_stale(&one, &one, 0, 2).is_some(), "two AI Assistant on one screen and no overlay: build");
+        assert_eq!(overlays_stale(&one, &one, 0, 0), None, "no AI Assistant: no overlay is missing");
     }
 
     #[test]
     fn a_helper_log_past_its_limit_starts_again_keeping_one_old_copy() {
-        let dir = std::env::temp_dir().join(format!("roamies-log-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ai_assistant-log-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (log, old) = (dir.join("sidekick.log"), dir.join("sidekick.log.old"));
         std::fs::write(&log, vec![b'x'; 1000]).unwrap();

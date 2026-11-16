@@ -4,7 +4,7 @@ use super::*;
 use std::io::{BufRead, BufReader};
 
 fn find_node() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("ROAMIES_NODE") {
+    if let Ok(p) = std::env::var("AI_ASSISTANT_NODE") {
         return Some(PathBuf::from(p));
     }
     // The Node.js shipped inside the app (bundle.externalBin), so users don't need Node installed.
@@ -48,11 +48,11 @@ const BACKOFF_SECS: [u64; 3] = [1, 3, 10];
 
 pub(crate) fn spawn_sidecar(app: &AppHandle) {
     let Some(node) = find_node() else {
-        fallback_menu(app, "Roamies is missing a part; reinstall it");
+        fallback_menu(app, "AI Assistant is missing a part; reinstall it");
         return;
     };
     let Some(script) = sidecar_script(app) else {
-        fallback_menu(app, "Roamies is missing a part; reinstall it");
+        fallback_menu(app, "AI Assistant is missing a part; reinstall it");
         return;
     };
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
@@ -60,17 +60,17 @@ pub(crate) fn spawn_sidecar(app: &AppHandle) {
     let mut cmd = Command::new(node);
     hide_console(&mut cmd);
     cmd.arg(&script)
-        .env("ROAMIES_VERSION", app.package_info().version.to_string())
-        .env("ROAMIES_HANDS", helper_binary("ai_assistant-hands").map(|p| p.to_string_lossy().into_owned()).unwrap_or_default())
+        .env("AI_ASSISTANT_VERSION", app.package_info().version.to_string())
+        .env("AI_ASSISTANT_HANDS", helper_binary("ai_assistant-hands").map(|p| p.to_string_lossy().into_owned()).unwrap_or_default())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(stderr);
     // Linux: "x11" or "wayland", for what the sidecar offers and how it words things (platform.mjs).
     // Windows: which program owns the tray icon, so the sidecar can show it next to the clock (wintray.mjs).
     #[cfg(windows)]
-    cmd.env("ROAMIES_EXE", std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default());
+    cmd.env("AI_ASSISTANT_EXE", std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default());
     #[cfg(target_os = "linux")]
-    cmd.env("ROAMIES_SESSION", crate::linux::session().name()).env("ROAMIES_LAUNCH", crate::linux::launch_command());
+    cmd.env("AI_ASSISTANT_SESSION", crate::linux::session().name()).env("AI_ASSISTANT_LAUNCH", crate::linux::launch_command());
     if let Some(dir) = script.parent() {
         cmd.current_dir(dir);
     }
@@ -78,7 +78,7 @@ pub(crate) fn spawn_sidecar(app: &AppHandle) {
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
-            fallback_menu(app, &format!("Roamies failed to start: {e}"));
+            fallback_menu(app, &format!("AI Assistant failed to start: {e}"));
             return;
         }
     };
@@ -105,7 +105,7 @@ pub(crate) fn spawn_sidecar(app: &AppHandle) {
         };
         let app2 = app.clone();
         if attempt > BACKOFF_SECS.len() {
-            let _ = app.run_on_main_thread(move || fallback_menu(&app2, "Roamies stopped"));
+            let _ = app.run_on_main_thread(move || fallback_menu(&app2, "AI Assistant stopped"));
             return;
         }
         thread::sleep(Duration::from_secs(BACKOFF_SECS[attempt - 1]));

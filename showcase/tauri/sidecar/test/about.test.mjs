@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { aboutRoamies } from '../about.mjs';
+import { aboutAiAssistant } from '../about.mjs';
 
-// The app's manual for about_roamies: each platform's own wording, and only the features this copy has.
+// The app's manual for about_ai_assistant: each platform's own wording, and only the features this copy has.
 const base = { name: 'JARVIS', looks: ['Roamie', 'JARVIS', 'Anime Girl'], mac: false, linux: false, snap: false, pointer: false, voice: false, hotkeys: false };
-const mac = aboutRoamies({ ...base, mac: true, snap: true, pointer: true, voice: true, hotkeys: true });
-const win = aboutRoamies(base);
-const linux = aboutRoamies({ ...base, linux: true, voice: true });
+const mac = aboutAiAssistant({ ...base, mac: true, snap: true, pointer: true, voice: true, hotkeys: true });
+const win = aboutAiAssistant(base);
+const linux = aboutAiAssistant({ ...base, linux: true, voice: true });
 assert.match(mac, /lives in the menu bar at the top of the screen/);
 assert.match(mac, /Show JARVIS, Ask JARVIS…, Ask About an Area…, Stop, Quit AI Assistant/);
 assert.match(mac, /By Jean-Marc Seguin, Visual aspects by Ken Kai/);
@@ -19,7 +19,7 @@ assert.match(linux, /installs? by themselves when AI Assistant runs as an AppIma
 assert.ok(!/Wake word/.test(linux), 'the wake word is Mac only');
 for (const t of [mac, win, linux]) {
   assert.match(t, /Save Diagnostics/);
-  assert.match(t, /github\.com\/KenKaiii\/Roamies/);
+  assert.match(t, /github\.com\/jmseguin\/Jarvis/);
   assert.ok(!/\$\{|undefined/.test(t), 'every part is filled in');
 }
 console.log('about tests: passed');

@@ -1,4 +1,4 @@
-// The agents' corner in the overlay (showcase/roamies/minis.js, agent-home.js): which icon a file gets, the pixel
+// The agents' corner in the overlay (showcase/overlay/minis.js, agent-home.js): which icon a file gets, the pixel
 // icons themselves, and where the home sits. Run: npm test
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -6,7 +6,7 @@ import vm from 'node:vm';
 
 // Without a document only the pure parts load, which is all that's tested here.
 const window = { Roamie: {} };
-for (const f of ['minis.js', 'agent-home.js']) vm.runInNewContext(fs.readFileSync(new URL(`../../../roamies/${f}`, import.meta.url), 'utf8'), { window, Math, Map });
+for (const f of ['minis.js', 'agent-home.js']) vm.runInNewContext(fs.readFileSync(new URL(`../../../overlay/${f}`, import.meta.url), 'utf8'), { window, Math, Map });
 const { fileKind, icon, KINDS } = window.Roamie.minis;
 
 const kinds = {
@@ -43,7 +43,7 @@ for (const [w, h] of [[1440, 900], [1280, 800], [1920, 1080], [3008, 1692]]) {
   assert.ok(x + 300 <= w - 12 && y >= 25 + 12 && Number.isInteger(x) && Number.isInteger(y), `${w}x${h}`);
 }
 // desktop.html pins every <canvas> (position: fixed); the minis must opt back into their row's layout.
-const homeSrc = fs.readFileSync(new URL('../../../roamies/agent-home.js', import.meta.url), 'utf8');
+const homeSrc = fs.readFileSync(new URL('../../../overlay/agent-home.js', import.meta.url), 'utf8');
 assert.ok(/canvas\s*\{[^}]*position:\s*fixed/.test(fs.readFileSync(new URL('../../../desktop.html', import.meta.url), 'utf8')));
 assert.ok(/\.ah-mini, \.ahs-mini \{[^}]*position: static/.test(homeSrc), 'minis stay in flow');
 // The made panel's open button: where it worked when it said so, else its files, else none.

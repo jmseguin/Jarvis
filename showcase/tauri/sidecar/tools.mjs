@@ -32,8 +32,8 @@ export const run = (cmd, args, { onLine, ...opts } = {}) => new Promise((res) =>
 // Windows "open": Start-Process gets the target (and the app to open it in) through environment variables, so
 // nothing in them is ever parsed as a command (cmd's start split URLs at "&", and quotes in names broke it). A
 // failure says "Unable to find application", as macOS's open does.
-const WIN_OPEN = "try { if ($env:ROAMIES_OPEN_APP) { Start-Process -FilePath $env:ROAMIES_OPEN_APP -ArgumentList ('\"' + $env:ROAMIES_OPEN + '\"') -ErrorAction Stop } else { Start-Process -FilePath $env:ROAMIES_OPEN -ErrorAction Stop } } catch { [Console]::Error.WriteLine('Unable to find application: ' + $_.Exception.Message); exit 1 }";
-export const winOpen = (target, app = '') => run('powershell', ['-NoProfile', '-NonInteractive', '-Command', WIN_OPEN], { env: { ...process.env, ROAMIES_OPEN: target, ROAMIES_OPEN_APP: app } });
+const WIN_OPEN = "try { if ($env:AI_ASSISTANT_OPEN_APP) { Start-Process -FilePath $env:AI_ASSISTANT_OPEN_APP -ArgumentList ('\"' + $env:AI_ASSISTANT_OPEN + '\"') -ErrorAction Stop } else { Start-Process -FilePath $env:AI_ASSISTANT_OPEN -ErrorAction Stop } } catch { [Console]::Error.WriteLine('Unable to find application: ' + $_.Exception.Message); exit 1 }";
+export const winOpen = (target, app = '') => run('powershell', ['-NoProfile', '-NonInteractive', '-Command', WIN_OPEN], { env: { ...process.env, AI_ASSISTANT_OPEN: target, AI_ASSISTANT_OPEN_APP: app } });
 // run_command's shell. Windows: cmd /d /s /c "…" passed as is (what Node's shell: true does); handed over as a plain
 // argument, Node escaped its quotes as \" which cmd doesn't read, so any command with quotes in it broke.
 export const shellFor = (command, platform = process.platform, env = process.env) => (platform === 'win32'
@@ -128,7 +128,7 @@ const actionsOff = `File edits and commands are switched off. Tell the user to t
 
 // "hands": the bundled helper that captures one window or area and reads/controls other apps (hands/main.swift on
 // macOS, hands-win on Windows; same commands and JSON). A .mjs one (a test's fake) runs on this Node.
-const HANDS = process.env.ROAMIES_HANDS || '';
+const HANDS = process.env.AI_ASSISTANT_HANDS || '';
 const runHands = (args, opts) => (HANDS.endsWith('.mjs') ? run(process.execPath, [HANDS, ...args], opts) : run(HANDS, args, opts));
 const STALE_ID = 'The page changed since read_window, so that id is out of date. Call read_window again and use the new ids.';
 // An app named in read_window or act_in_app that isn't open: open it (with the open tool's safety check) and wait
@@ -137,7 +137,7 @@ async function launchApp(name, hands) {
   const n = String(name).trim();
   if (!['darwin', 'win32'].includes(process.platform) || !n || /[/\\:]/.test(n) || checkOpen(n, HOME).level === BLOCK) return false;
   // Opened only to act in it: in background mode (the default) it opens behind the user's app, not in front (macOS).
-  const r = process.platform === 'win32' ? await winOpen(n) : await run('open', [...(process.env.ROAMIES_BG !== '0' ? ['-g'] : []), '-a', n]);
+  const r = process.platform === 'win32' ? await winOpen(n) : await run('open', [...(process.env.AI_ASSISTANT_BG !== '0' ? ['-g'] : []), '-a', n]);
   if (r.err && /Unable to find application/i.test(r.stderr)) throw new Error(`There's no app called "${n}" on ${THIS_COMPUTER} (not installed, or it has another name). Don't look for it another way; say so and carry on with the rest.`);
   if (r.err) return false;
   for (let i = 0; i < 30; i++) {
@@ -228,7 +228,7 @@ export function sideSearchFor(route) {
 // Every request and redirect hop of web_fetch goes through safety.mjs, by name and by the addresses it resolves to.
 export const guardFetch = async (url) => { const v = await checkFetch(url); return v.level === BLOCK ? `Blocked for safety: ${v.reason}` : null; };
 
-export function createTools({ allowActions, appControl = null, ui, ask, openUrl, onCommitments, focus = null, firedReminders = () => [], showList, fmtWhen, commitmentsText, userName, onPlan = () => {}, speak = () => false, onHandoff = () => {}, watchClicks = () => {}, onInkGone = () => {}, askShell = async () => ({ ok: false, error: 'Roamies isn\'t running.' }), workdir = HOME, own = null, sideSearch = async () => null }) {
+export function createTools({ allowActions, appControl = null, ui, ask, openUrl, onCommitments, focus = null, firedReminders = () => [], showList, fmtWhen, commitmentsText, userName, onPlan = () => {}, speak = () => false, onHandoff = () => {}, watchClicks = () => {}, onInkGone = () => {}, askShell = async () => ({ ok: false, error: 'AI Assistant isn\'t running.' }), workdir = HOME, own = null, sideSearch = async () => null }) {
   // Relative paths (and run_command) start in workdir: the home folder for the chat, its own folder for an agent.
   const at = (p) => { const s = String(p ?? ''); return /^~(?=$|\/|\\)/.test(s) || path.isAbsolute(s) || /^[a-z]:[\\/]/i.test(s) ? s : path.join(workdir, s); };
   const where = workdir === HOME ? "the user's home folder" : `its working folder (${workdir})`;
@@ -339,20 +339,20 @@ export function createTools({ allowActions, appControl = null, ui, ask, openUrl,
       // file path passed by environment variable so odd characters in it can't break the script.
       const ps = [
         'Add-Type -AssemblyName System.Windows.Forms,System.Drawing',
-        "Add-Type -Name D -Namespace RoamiesWin -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool SetProcessDPIAware();'",
-        '[RoamiesWin.D]::SetProcessDPIAware() | Out-Null',
+        "Add-Type -Name D -Namespace AIAssistantWin -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool SetProcessDPIAware();'",
+        '[AIAssistantWin.D]::SetProcessDPIAware() | Out-Null',
         '$b=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds',
         '$i=New-Object System.Drawing.Bitmap $b.Width,$b.Height',
         '[System.Drawing.Graphics]::FromImage($i).CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size)',
         '$s=[Math]::Min(1.0,1568.0/[Math]::Max($b.Width,$b.Height))',
         '$o=New-Object System.Drawing.Bitmap ([int]($b.Width*$s)),([int]($b.Height*$s))',
         "$g=[System.Drawing.Graphics]::FromImage($o);$g.InterpolationMode='HighQualityBicubic';$g.DrawImage($i,0,0,$o.Width,$o.Height)",
-        '$o.Save($env:ROAMIES_SHOT,[System.Drawing.Imaging.ImageFormat]::Jpeg)',
+        '$o.Save($env:AI_ASSISTANT_SHOT,[System.Drawing.Imaging.ImageFormat]::Jpeg)',
         // Physical size, the image size and the screen's scale, so draw can turn its pixels into overlay points.
         "Write-Output ('{0} {1} {2} {3} {4}' -f $b.Width,$b.Height,$o.Width,$o.Height,([System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero).DpiX/96))",
       ].join(';');
       // -EncodedCommand (UTF-16LE base64): no quoting for Windows' command line to mangle.
-      const r = await run('powershell', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(ps, 'utf16le').toString('base64')], { env: { ...process.env, ROAMIES_SHOT: file } });
+      const r = await run('powershell', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(ps, 'utf16le').toString('base64')], { env: { ...process.env, AI_ASSISTANT_SHOT: file } });
       if (r.err) throw new Error('Screen capture failed.');
       const [pw, ph, iw, ih, sc] = r.stdout.trim().split(/\s+/).map(Number);
       lastShot = pw && iw && sc ? { ...shotMap([0, 0, pw / sc, ph / sc], iw, ih), bounds: [0, 0, pw / sc, ph / sc], win: null, turn } : null;
@@ -477,7 +477,7 @@ export function createTools({ allowActions, appControl = null, ui, ask, openUrl,
         return (await hands('ocr-find', where, String(find), 'all').catch(() => null))?.matches ?? [];
       },
       async findText(find) {
-        if (!HANDS) throw new Error('Finding words on screen needs the Roamies app; take a screenshot and give x, y instead.');
+        if (!HANDS) throw new Error('Finding words on screen needs the AI Assistant app; take a screenshot and give x, y instead.');
         // Text read off the screen: one match, or where each of several is, so the right one can be picked with within.
         const readOne = async () => {
           const all = await this.textAll(find);
@@ -502,7 +502,7 @@ export function createTools({ allowActions, appControl = null, ui, ask, openUrl,
         }
       },
       async id(n) {
-        if (!HANDS) throw new Error('read_window ids need the Roamies app; give x, y from a screenshot instead.');
+        if (!HANDS) throw new Error('read_window ids need the AI Assistant app; give x, y from a screenshot instead.');
         live ??= await liveControls(spec);
         const c = live(n);
         if (c.offscreen) throw new Error(`"${c.label || c.role}" is further down the page. Use its text instead; that scrolls to it.`);
@@ -576,7 +576,7 @@ export function createTools({ allowActions, appControl = null, ui, ask, openUrl,
       else if (m.kind === 'open') { await tools.find((x) => x.name === 'open').execute({ target: m.url }); }
       else if (m.kind === 'handoff') onHandoff(m.task || m.text || m.label || 'a task');
       else if (m.kind === 'type') {
-        if (!HANDS) throw new Error('Typing into apps needs the Roamies app.');
+        if (!HANDS) throw new Error('Typing into apps needs the AI Assistant app.');
         const src = m.at.src, app = t === 'front' || t === 'screen' ? {} : { app: t };
         const steps = src.text != null ? [{ do: 'fill', field: src.text, text: m.text }]
           : src.id != null ? [{ do: 'click', id: m.at.live }, { do: 'type', text: m.text }]
@@ -597,7 +597,7 @@ export function createTools({ allowActions, appControl = null, ui, ask, openUrl,
     const id = ctx.toolCallId, edits = args.edit ?? [], notes = [], said = [];
     // Clicks and hovers in other apps can't be seen here (Wayland): the beats play one after another instead.
     const beats = (args.beats ?? []).map((b) => (POINTER_OK || !b.wait ? b : { ...b, wait: undefined }));
-    if (beats.some((b, i) => b !== (args.beats ?? [])[i])) notes.push("This desktop doesn't let Roamies see clicks in other apps, so the beats played one after another instead of waiting for clicks.");
+    if (beats.some((b, i) => b !== (args.beats ?? [])[i])) notes.push("This desktop doesn't let AI Assistant see clicks in other apps, so the beats played one after another instead of waiting for clicks.");
     for (const e of edits) if (e.do !== 'clear' && !parts.has(e.part)) throw new Error(`There's no ${e.part} on screen now${parts.ids.length ? ` (there is: ${parts.describe()})` : ' (nothing is drawn)'}. Draw it again instead.`);
     // A new drawing in a later request replaces the old one (cards too), unless it's editing what's there.
     if (ink.turn !== turn && !edits.length && parts.ids.length) clearAllInk();
@@ -730,7 +730,7 @@ export function createTools({ allowActions, appControl = null, ui, ask, openUrl,
       },
       {
         name: 'manage_app_approval',
-        description: "View, grant, or revoke explicit per-app control approvals (for terminals like iTerm2/Headr or IDEs/agents like Antigravity), or change whether Roamies confirms before pressing Enter. Call this whenever the user asks by voice or text to approve/allow/revoke an app or change Enter confirmation.",
+        description: "View, grant, or revoke explicit per-app control approvals (for terminals like iTerm2/Headr or IDEs/agents like Antigravity), or change whether AI Assistant confirms before pressing Enter. Call this whenever the user asks by voice or text to approve/allow/revoke an app or change Enter confirmation.",
         parameters: z.object({
           action: z.enum(['list', 'approve', 'revoke', 'confirm_enter']),
           app: z.string().optional().describe('App name, e.g. iTerm2, Headr, Antigravity.'),
@@ -738,7 +738,7 @@ export function createTools({ allowActions, appControl = null, ui, ask, openUrl,
           confirmBeforeEnter: z.boolean().optional().describe('For action=confirm_enter: true to ask before pressing Enter, false to allow Enter without asking.'),
         }),
         execute: async ({ action, app, mode = 'always', confirmBeforeEnter }) => {
-          if (!appControl) return 'App approval settings are only available in the Roamies desktop app.';
+          if (!appControl) return 'App approval settings are only available in the AI Assistant desktop app.';
           const st = appControl.get();
           if (action === 'list') {
             const always = Object.values(st.approvedApps ?? {}).map((x) => `${x.name} (always)`);
@@ -824,7 +824,7 @@ export function createTools({ allowActions, appControl = null, ui, ask, openUrl,
             if (ctl.level === BLOCK) throw new Error(ctl.reason);
             if (ctl.level === ASK && !isAppApproved(targetApp, targetBundle, st)) {
               const where = targetTitle ? `${targetApp} ("${targetTitle}")` : targetApp;
-              const ans = await ask({ placeholder: `Allow Roamies to control ${where}?`, choices: ['Allow once', 'Allow this session', 'Always allow', "Don't allow"] }, ctx?.signal);
+              const ans = await ask({ placeholder: `Allow AI Assistant to control ${where}?`, choices: ['Allow once', 'Allow this session', 'Always allow', "Don't allow"] }, ctx?.signal);
               if (/always|permanent|forever/i.test(ans)) appControl.approve(targetApp, { bundleId: targetBundle, mode: 'always' });
               else if (/session|for now/i.test(ans)) appControl.approve(targetApp, { bundleId: targetBundle, mode: 'session' });
               else if (!isYes(ans)) throw new Error(`${userName} did not approve controlling ${targetApp}.`);

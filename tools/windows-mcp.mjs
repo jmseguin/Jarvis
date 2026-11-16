@@ -216,7 +216,7 @@ const TOOL_SPECS = [
   },
   {
     name: 'windows_mcp_process', remote: 'Process', kind: 'system',
-    description: 'List running processes, or close one by name or id. Full Desktop trust only; closing asks first, and Windows and Roamies themselves are protected.',
+    description: 'List running processes, or close one by name or id. Full Desktop trust only; closing asks first, and Windows and AI Assistant themselves are protected.',
     buildParams: (z) => z.object({
       mode: z.enum(['list', 'kill']),
       name: z.string().optional(),

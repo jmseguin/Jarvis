@@ -47,8 +47,8 @@
       // Size: 'default', 'small' (half the body) or 'cursor' (a pixel arrow pointer). Text keeps its size either way.
       let form = (typeof location !== 'undefined' && new URLSearchParams(location.search).get('form')) || 'default', lastEnv = null;
       let userForm = form;
-      // Look: 'classic' (the goo blob, and the arrow at cursor size), 'jarvis' (roamies/jarvis.js: a globe of
-      // points with a lit heart, and a HUD reticle at cursor size) or a character from roamies/people.js
+      // Look: 'classic' (the goo blob, and the arrow at cursor size), 'jarvis' (overlay/jarvis.js: a globe of
+      // points with a lit heart, and a HUD reticle at cursor size) or a character from overlay/people.js
       // ('anime', 'sarah', 'adrian', 'rita'). Moves, sizes and everything else are shared.
       const drawn = (l) => (l === 'jarvis' ? Roamie.jarvis : Roamie.people?.[l]);
       const pickLook = (l) => (drawn(l) ? l : 'classic');

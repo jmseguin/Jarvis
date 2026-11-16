@@ -42,7 +42,7 @@ console.log('providers ok');
   const fs = await import('node:fs/promises');
   const os = await import('node:os');
   const path = await import('node:path');
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'roamies-auth-'));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ai-assistant-auth-'));
   const auth = new AuthStorage(path.join(dir, 'auth.json'));
   const creds = { accessToken: 'k', refreshToken: '', expiresAt: Date.now() + 864e5 };
   const apiProviders = AUTH_PROVIDERS.filter((x) => x.methods.includes('apikey'));

@@ -13,7 +13,7 @@ This project builds on **Roamies** by **Ken Kai**, whose visual design, companio
   - `hands/main.swift` — macOS Accessibility & input automation (`HANDS_OFF` safety guards)
 - `showcase/tauri/sidecar/` — Node.js agent brain (`sidekick.mjs`), built-in tools (`tools.mjs`), safety checks (`safety.mjs`), TTS integrations (`voicestudio.mjs`, `fish.mjs`, `gemini.mjs`), and `bundle.sh` (`esbuild` → `dist/`)
 - `showcase/panel/` — Settings panel UI (`index.html`, `panel.js`, `panel.css`)
-- `showcase/roamies/` — Floating overlay web UI
+- `showcase/overlay/` — Floating overlay web UI
 - `tools/` — Project-level tool and MCP source code:
   - `tools/index.mjs` — Tool registry and MCP client definitions
   - `tools/herdr.mjs` — Adapter bridging `herdr-mcp` into the sidecar tool loop
@@ -21,7 +21,7 @@ This project builds on **Roamies** by **Ken Kai**, whose visual design, companio
 
 ## VoiceStudio & TTS Setup
 
-AI Assistant connects to [VoiceStudio](http://127.0.0.1:3900) over its local streaming WebSocket (`ws://127.0.0.1:3900/ws/tts`, configurable via `ROAMIES_VOICESTUDIO_URL` for loopback URLs) using `StudioVoice` in `showcase/tauri/sidecar/voicestudio.mjs`.
+AI Assistant connects to [VoiceStudio](http://127.0.0.1:3900) over its local streaming WebSocket (`ws://127.0.0.1:3900/ws/tts`, configurable via `AI_ASSISTANT_VOICESTUDIO_URL` for loopback URLs) using `StudioVoice` in `showcase/tauri/sidecar/voicestudio.mjs`.
 
 ### Current VoiceStudio Configuration (Mac Studio / Apple Silicon)
 
@@ -62,7 +62,7 @@ On Windows, Jarvis can look at and drive the desktop through [CursorTouch/Window
 
 - **Tools exposed** (`windows_mcp_*`): `snapshot`, `screenshot`, `displays`, `control_status`, `wait`, `wait_for`, `scrape`, `clipboard`, `click`, `type`, `scroll`, `move`, `shortcut`, `multi_select`, `multi_edit`, `app`, `notification`, plus `powershell`, `files`, `registry` and `process`.
 - **Trust level** (**Settings → Apps → Desktop Control Trust Level**, the same setting as macOS): *Observe* only looks; *Assisted* asks before every click or keystroke; *App-Scoped* acts in approved apps; *Full Desktop* acts anywhere. `powershell`, `files`, `registry` and `process` need **Full Desktop**.
-- **Safety** (`showcase/tauri/sidecar/safety.mjs`, `checkWindowsSystemAction`): at every level, PowerShell that downloads and runs code, hides itself (`-enc`, `iex`), changes security settings, adds startup entries or deletes whole folders is refused; keys and passwords are never read; the registry is only changed under `HKCU`, never startup or policy keys; Windows itself and Roamies cannot be closed; terminals, the registry editor, Task Manager, password managers and similar apps are never clicked or typed into (the same list as the `hands-win` helper). PowerShell and deleting always ask first. Every action is logged to `~/.gg/sidekick/logs/ui-actions.jsonl`.
+- **Safety** (`showcase/tauri/sidecar/safety.mjs`, `checkWindowsSystemAction`): at every level, PowerShell that downloads and runs code, hides itself (`-enc`, `iex`), changes security settings, adds startup entries or deletes whole folders is refused; keys and passwords are never read; the registry is only changed under `HKCU`, never startup or policy keys; Windows itself and AI Assistant cannot be closed; terminals, the registry editor, Task Manager, password managers and similar apps are never clicked or typed into (the same list as the `hands-win` helper). PowerShell and deleting always ask first. Every action is logged to `~/.gg/sidekick/logs/ui-actions.jsonl`.
 - **No telemetry**: Windows-MCP reports anonymous usage to PostHog by default. Jarvis always starts it with `ANONYMIZED_TELEMETRY=false`; this is not configurable.
 - Enable, disable or change the command in **Settings → MCP** (`windows-mcp`).
 

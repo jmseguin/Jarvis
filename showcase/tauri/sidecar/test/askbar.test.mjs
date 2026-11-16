@@ -1,11 +1,11 @@
-// Where the type-to-ask field sits beside the cursor (showcase/roamies/ask-bar.js: Roamie.askBarPlace). Run: npm test
+// Where the type-to-ask field sits beside the cursor (showcase/overlay/ask-bar.js: Roamie.askBarPlace). Run: npm test
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
 // Without a document only the placement rule loads, which is all that's tested here.
 const window = { Roamie: {} };
-vm.runInNewContext(fs.readFileSync(new URL('../../../roamies/ask-bar.js', import.meta.url), 'utf8'), { window, Math });
+vm.runInNewContext(fs.readFileSync(new URL('../../../overlay/ask-bar.js', import.meta.url), 'utf8'), { window, Math });
 const place = (cursor, size = [320, 38], bounds = B) => Array.from(window.Roamie.askBarPlace(cursor, size, bounds));
 // A 1440 x 900 screen with a menu bar on top and a Dock below, less the 8 px kept clear of every edge.
 const B = { l: 8, t: 41, r: 1432, b: 812 };

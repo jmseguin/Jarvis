@@ -1,4 +1,4 @@
-// Voice helper for Roamies on Windows and Linux: the twin of voice/main.swift, with the same JSON lines in and out.
+// Voice helper for AI Assistant on Windows and Linux: the twin of voice/main.swift, with the same JSON lines in and out.
 // Watches the talk chord (GetAsyncKeyState on Windows, the X server on Linux X11 sessions; neither needs a
 // permission), records the default microphone and
 // transcribes on this PC with NVIDIA Parakeet TDT 0.6B v3 (int8 ONNX via parakeet-rs). Parakeet isn't a
@@ -6,14 +6,14 @@
 // Hold the chord = push-to-talk (release sends). Quick tap = hands-free (ends on a pause or another tap).
 // While the chord is held, moving the cursor round something circles it (ink.rs); the circled area goes out with
 // what was said, as on macOS (Windows only). On Wayland no app can watch the keyboard, so there {"cmd":"toggle"}
-// (sent for `roamies --talk`, which people bind to a key) starts a take, and sends it when it comes again or on a
+// (sent for `ai_assistant --talk`, which people bind to a key) starts a take, and sends it when it comes again or on a
 // pause. Exits when stdin closes.
 //
-// roamies-voice --model <dir> [--chord control,option]   normal use (Roamies starts it)
-// roamies-voice --perms                                   prints {"type":"perms","mic":…}
-// roamies-voice --devices                                 prints {"type":"devices",…}: every mic, the default, formats
-// roamies-voice --model <dir> --transcribe <wav>          dev: transcribe a file and exit
-// roamies-voice --model <dir> --test-audio <wav>          dev: a file stands in for the mic ({"cmd":"listen"} starts)
+// ai_assistant-voice --model <dir> [--chord control,option]   normal use (AI Assistant starts it)
+// ai_assistant-voice --perms                                   prints {"type":"perms","mic":…}
+// ai_assistant-voice --devices                                 prints {"type":"devices",…}: every mic, the default, formats
+// ai_assistant-voice --model <dir> --transcribe <wav>          dev: transcribe a file and exit
+// ai_assistant-voice --model <dir> --test-audio <wav>          dev: a file stands in for the mic ({"cmd":"listen"} starts)
 
 mod audio;
 mod ink;
@@ -71,7 +71,7 @@ fn load_model(dir: &Path) -> Result<ParakeetTDT, String> {
     // Half the cores: quick enough to read a minute of speech in a second or two, without starving the PC.
     let threads = thread::available_parallelism().map(|n| n.get() / 2).unwrap_or(2).clamp(1, 8);
     let t0 = Instant::now();
-    let env = parakeet_rs::ort::init().with_name("roamies-voice").build().map_err(|e| e.to_string())?;
+    let env = parakeet_rs::ort::init().with_name("ai_assistant-voice").build().map_err(|e| e.to_string())?;
     let config = ExecutionConfig::new().with_environment(env).with_intra_threads(threads);
     let mut asr = ParakeetTDT::from_pretrained(dir, Some(config)).map_err(|e| e.to_string())?;
     // One short warm-up run, so the first real request doesn't pay for ONNX Runtime's setup.
@@ -515,7 +515,7 @@ impl Voice {
         self.show_listening("handsfree", now);
     }
 
-    /// The talk shortcut where the keys can't be watched (`roamies --talk`): the first one starts listening
+    /// The talk shortcut where the keys can't be watched (`ai_assistant --talk`): the first one starts listening
     /// hands-free, the next one sends what was said (so does a pause).
     fn toggle(&mut self) {
         match self.phase {
@@ -529,7 +529,7 @@ impl Voice {
         }
     }
 
-    /// Roamies saw its show/hide shortcut: that chord press was a shortcut, not a request to talk.
+    /// AI Assistant saw its show/hide shortcut: that chord press was a shortcut, not a request to talk.
     fn external_cancel(&mut self) {
         if matches!(self.phase, Phase::Armed | Phase::Holding | Phase::HandsFree) {
             self.cancel();
@@ -537,7 +537,7 @@ impl Voice {
         self.blocked = true;
     }
 
-    /// Returns true when Roamies has gone (stdin closed) and the helper should exit.
+    /// Returns true when AI Assistant has gone (stdin closed) and the helper should exit.
     fn handle(&mut self, ev: Ev) -> bool {
         match ev {
             Ev::Cmd(msg) => match msg.get("cmd").and_then(Value::as_str) {
@@ -663,7 +663,7 @@ mod tests {
     // A Voice with a stand-in engine (the test reads its jobs) and a short WAV in place of the microphone.
     fn voice() -> (Voice, Receiver<Job>, PathBuf) {
         static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let wav = std::env::temp_dir().join(format!("roamies-voice-test-{}-{}.wav", std::process::id(), N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+        let wav = std::env::temp_dir().join(format!("ai_assistant-voice-test-{}-{}.wav", std::process::id(), N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
         let spec = hound::WavSpec { channels: 1, sample_rate: RATE, bits_per_sample: 16, sample_format: hound::SampleFormat::Int };
         let mut w = hound::WavWriter::create(&wav, spec).expect("test wav");
         for i in 0..RATE / 2 {

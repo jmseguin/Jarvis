@@ -51,7 +51,7 @@ import { accountKeys, keyCards, keyKinds, signInCards } from './providers.mjs';
 import { OLLAMA, OLLAMA_KEY, connectLocal, contextNote, withWindow } from './local.mjs';
 import { activityLogs, buildReport, redact, reportDir, reportName, reveal, run, scrubConfig, tail } from './diagnostics.mjs';
 import { detailsText, explain } from './errors.mjs';
-import { aboutRoamies } from './about.mjs';
+import { aboutAiAssistant } from './about.mjs';
 import { whatsNewOnStart } from './whatsnew.mjs';
 import { z } from 'zod';
 
@@ -78,11 +78,11 @@ const ob = (msg) => send({ type: 'onboard', msg });
 const say = (text, mood) => (onboarding ? ob({ kind: 'say', text, mood }) : ui({ kind: 'say', text, mood }));
 const sayOut = say;
 
-const VERSION = process.env.ROAMIES_VERSION || '0.0.0';
-const UPDATE_REPO = 'KenKaiii/Roamies';
+const VERSION = process.env.AI_ASSISTANT_VERSION || '0.0.0';
+const UPDATE_REPO = 'jmseguin/Jarvis';
 const HOME = os.homedir();
-// ROAMIES_DATA_DIR (tests and benchmarks): config, sessions and memory go there instead; sign-in stays in ~/.gg.
-const CONFIG_PATH = process.env.ROAMIES_DATA_DIR ? path.join(process.env.ROAMIES_DATA_DIR, 'sidekick.json') : path.join(HOME, '.gg', 'sidekick.json');
+// AI_ASSISTANT_DATA_DIR (tests and benchmarks): config, sessions and memory go there instead; sign-in stays in ~/.gg.
+const CONFIG_PATH = process.env.AI_ASSISTANT_DATA_DIR ? path.join(process.env.AI_ASSISTANT_DATA_DIR, 'sidekick.json') : path.join(HOME, '.gg', 'sidekick.json');
 // The only sign-ins: Claude runs through Claude Code (downloaded once, about 140 MB; it keeps the token, auth.json
 // a marker), ChatGPT is Continue with ChatGPT. Everything else, Kimi, Grok and Gemini included, takes an API key.
 const OAUTH = {
@@ -137,7 +137,7 @@ const lookVoice = () => (LOOKS.find(([id]) => id === config.look) ?? LOOKS[0])[2
 // The look's voice with Gemini and with VoiceStudio: the user's pick for it, else its own default.
 const geminiVoice = () => config.geminiVoices?.[config.look] ?? GEMINI_LOOK_VOICES[config.look] ?? GEMINI_DEFAULT_VOICE;
 const studioVoice = () => config.studioVoices?.[config.look] ?? null;
-// Its name is its look's: Roamie, JARVIS, Anime Girl, Sarah, Adrian or Rita X. Roamies is the app.
+// Its name is its look's: Roamie, JARVIS, Anime Girl, Sarah, Adrian or Rita X. AI Assistant is the app.
 const lookName = () => (LOOKS.find(([id]) => id === config.look) ?? LOOKS[0])[1];
 // What each says when it's picked, in its own voice (Settings and the setup guide show the same words).
 const LOOK_GREETINGS = { classic: 'Classic me!', jarvis: 'At your service.', anime: 'Yay, hi hi!', sarah: 'Hey, nice to meet you!', adrian: "Alright, let's do this.", rita: 'Shall we get to work?' };
@@ -190,7 +190,7 @@ async function voiceKey(id) {
   const shared = id === 'gemini' ? await brainGeminiKey() : null;
   return shared ? [shared, 'shared'] : [null, false];
 }
-const secrets = createSecrets({ hands: process.env.ROAMIES_HANDS || '', dataDir: path.join(path.dirname(CONFIG_PATH), 'sidekick') });
+const secrets = createSecrets({ hands: process.env.AI_ASSISTANT_HANDS || '', dataDir: path.join(path.dirname(CONFIG_PATH), 'sidekick') });
 let voiceProblemAt = 0;
 // Beats made on this computer (a Gemini voice's, or a Fish voice the app doesn't ship) are kept, so each voice
 // and model's are only made once.
@@ -266,7 +266,7 @@ const validSummon = (a) => typeof a === 'string' && /^((Control|Alt|Shift|Comman
 // The shell watches for the type-to-ask tap itself; on Wayland it can't see the keys, so it gets no pair.
 const sendKeys = () => send({ type: 'keybinds', ...keys(), write: HOTKEYS_OK ? keys().write : undefined });
 // How to talk, in a sentence: hold the keys, or on Wayland (where no app can watch the keyboard) press the shortcut
-// they bound to `roamies --talk`, which starts listening and sends on a second press or a pause.
+// they bound to `ai_assistant --talk`, which starts listening and sends on a second press or a pause.
 const talkHow = () => (HOTKEYS_OK ? `Hold ${talkWords().replace('+', ' and ')}` : 'Press your talk shortcut');
 const talkHowLong = () => (HOTKEYS_OK ? `${talkHow()} while you talk` : 'Press your talk shortcut, talk, then press it again (or just pause)');
 const MAC = process.platform === 'darwin';
@@ -277,19 +277,19 @@ const macVersion = (() => { if (!MAC) return ''; try { return execFileSync('sw_v
 const distro = (() => { if (!LINUX) return ''; try { return (/^PRETTY_NAME="?([^"\n]*)"?$/m.exec(readFileSync('/etc/os-release', 'utf8'))?.[1] ?? '').slice(0, 60); } catch { return ''; } })();
 const PLATFORM = platformLine(process.platform, { macVersion, arch: os.arch(), release: os.release(), session: SESSION, desktop: process.env.XDG_CURRENT_DESKTOP ?? '', distro });
 // Reading and working other apps, Ask About an Area, and circling while talking (see platform.mjs).
-const HANDS_OK = hasHands(process.platform, process.env.ROAMIES_HANDS);
-const SNAP_OK = canSnap(process.platform, process.env.ROAMIES_HANDS);
+const HANDS_OK = hasHands(process.platform, process.env.AI_ASSISTANT_HANDS);
+const SNAP_OK = canSnap(process.platform, process.env.AI_ASSISTANT_HANDS);
 const CIRCLE_OK = canCircle(process.platform);
 // A shortcut as people on this computer say it: "Control+Option+S" on a Mac, "Ctrl+Alt+S" on Windows.
 const keyWords = (accel) => accel.replace(/Key|Digit/g, '').split('+')
   .map((p) => (MAC ? { Alt: 'Option' }[p] ?? p : { Control: 'Ctrl', Command: LINUX ? 'Super' : 'Win' }[p] ?? p)).join('+');
 const TRAY = MAC ? 'menu bar' : 'system tray';
 // Where settings live now: the panel that opens from the icon (the menu is just the basics). Linux trays don't
-// report clicks, so there it's the icon's menu, or starting Roamies again (which also works with no tray at all).
+// report clicks, so there it's the icon's menu, or starting AI Assistant again (which also works with no tray at all).
 const PANEL = LINUX ? 'the panel (Open Panel… in my tray icon\'s menu, or open AI Assistant again from your apps)' : MAC ? `the panel (click my ${TRAY} icon)` : 'the panel (click my icon by the clock, behind the ^ arrow if it isn\'t showing, or open AI Assistant again from the Start menu)';
 // What the shortcuts are on Wayland: whatever keys they bound to these commands in their desktop's settings.
-// ROAMIES_LAUNCH: how this copy is started (the app says: plain roamies for a package, the AppImage's path for one).
-const LAUNCH = process.env.ROAMIES_LAUNCH || 'roamies';
+// AI_ASSISTANT_LAUNCH: how this copy is started (the app says: plain ai_assistant for a package, the AppImage's path for one).
+const LAUNCH = process.env.AI_ASSISTANT_LAUNCH || 'ai_assistant';
 const BIND = Object.fromEntries(['summon', 'talk', 'ask', 'list', 'panel'].map((k) => [k, `${LAUNCH} --${k}`]));
 
 const auth = new AuthStorage();
@@ -444,12 +444,12 @@ const { tools, hands, whereNow, frontNow: frontData, ink, nextTurn } = createToo
     return c?.accessToken ? { apiKey: c.accessToken, baseUrl: c.baseUrl } : null;
   },
 });
-// The app's own manual, read when they ask about Roamies rather than sent with every request.
+// The app's own manual, read when they ask about AI Assistant rather than sent with every request.
 tools.push({
-  name: 'about_roamies',
-  description: 'How Roamies works: where it lives, its menus, the panel and each settings page, updates, what to do when something is not working, and who made it. Call it before answering a question about the app.',
+  name: 'about_ai_assistant',
+  description: 'How AI Assistant works: where it lives, its menus, the panel and each settings page, updates, what to do when something is not working, and who made it. Call it before answering a question about the app.',
   parameters: z.object({}),
-  execute: async () => aboutRoamies({ name: lookName(), looks: LOOKS.map(([, label]) => label), mac: MAC, linux: LINUX, snap: SNAP_OK, pointer: POINTER_OK, voice: VOICE_OK, hotkeys: HOTKEYS_OK }),
+  execute: async () => aboutAiAssistant({ name: lookName(), looks: LOOKS.map(([, label]) => label), mac: MAC, linux: LINUX, snap: SNAP_OK, pointer: POINTER_OK, voice: VOICE_OK, hotkeys: HOTKEYS_OK }),
 });
 // Background agents (agents.mjs): each runs in its own process on the model picked when it starts.
 let turnImage = null; // the picture sent with the request being answered, for send_agent's "snap"
@@ -648,7 +648,7 @@ Your voice carries feeling: start a sentence with a voice cue in square brackets
 Before anything slow (searching the web, fetching or reading a page or file, looking at the screen, acting in an app, running a command), first say one short beat of 2 to 6 words that shows you heard them ("On it, checking Paris."), then call the tool in the same reply, so they're never left in silence. No beat when you answer straight away, and never describe your steps. In longer work, one short line before each new stage, not before every call.
 `;
 const stablePrompt = () => `You are ${lookName()}, ${LOOK_BODY[config.look] ?? LOOK_BODY.classic} who lives on ${userName}'s screen as a desktop companion. You live in AI Assistant, a desktop app (Mac, Windows and Linux) that puts AI companions on your screen; this is AI Assistant ${VERSION}. Your look (the Appearance page) is also your name and your voice: Roamie, JARVIS, Anime Girl, Sarah or Adrian. If they switch, you're the new one; never call yourself Sidekick.
-Questions about AI Assistant itself (where to find it, its menus, panel pages and settings, updates, something not working, who made it): call about_roamies and answer from what it says. Don't invent features or settings it doesn't list.
+Questions about AI Assistant itself (where to find it, its menus, panel pages and settings, updates, something not working, who made it): call about_ai_assistant and answer from what it says. Don't invent features or settings it doesn't list.
 ${replyStyle()}Your body does the acting: to act out a feeling, start your reply with one body tag, which is never shown: ${EMOTES.map((e) => `[${e}]`).join(' ')} (only these five). hype celebrates a win, upset is for when they're dodging work, remind nudges about something they said they'd do, motivate is a push to start, wave is hello or goodbye. Most replies need no body tag.
 Lead with the answer: the fact, number, pick or result they asked for, then only the context that makes it useful, then stop. ${config.followUpQuestions === false ? 'Never end with "Is there anything else I can help with?", "Let me know if you need anything else", or any filler closing question—only ask a question when you genuinely need specific input from ' + userName + ' to finish the task (they will use push-to-talk or the wake word when they want more). ' : ''}A count or total gathered over several pages, files or results: note each one's count in a few words as you go ("Page 1: two."), add those up, and check the total you lead with against the items you then name. No opener about checking, looking or searching ("Let me see…", "I found…")${VOICE_ON() ? ', apart from the one short beat before something slow' : ''}.
 After using a tool, never repeat what you already said; only add what's new.
@@ -691,7 +691,7 @@ ${frontNow ? `${frontNow}\n` : ''}${focusLine()}- Editing files, running command
 - Windows desktop control: on this PC the CursorTouch windows_mcp_* tools do the looking and the driving (windows_mcp_snapshot, then windows_mcp_click, windows_mcp_type, windows_mcp_shortcut, windows_mcp_app, windows_mcp_scroll). Look first (snapshot gives element label ids and coordinates), then act. They follow the UI trust level in ${PANEL} -> Apps & Control: Observe Only means looking only. windows_mcp_powershell, windows_mcp_files, windows_mcp_registry and windows_mcp_process need Full Desktop trust, and PowerShell and deletes always ask first. If a call comes back blocked, say why in one sentence and do not try to get around it. The ui_* and macos_mcp_* tools are macOS-only.` : ''}
 ${config.followUpQuestions === false ? '- Reply ending: Answer directly and end with a period. NEVER ask follow-up offers ("Is there anything else...", "Would you like...", "Can I assist...", "Is there a specific...") unless you are genuinely blocked and cannot proceed without an answer.\n' : ''}
 ${VOICE_OK ? `- Voice: ${!config.voice ? 'off' : voiceReady() ? `on; ${HOTKEYS_OK ? `${userName} holds ${talkWords()} to talk` : `${userName} presses the key they bound to ${BIND.talk} to start talking and again to send (a pause sends too)`}${config.autoListen ? '. Auto-listen is on: when your reply to a spoken question ends with a question, the mic opens by itself for their answer' : ''}${MAC && config.wakeWord ? `. Wake word is on: ${userName} can also say "Hey ${wakeName(config)}" to start talking hands-free, and what they say right after it is the request${config.wakeName ? ` (they chose "${config.wakeName}" as the wake word; your own name is unchanged)` : ''}` : ''}` : `on, but the speech model isn't downloaded yet (${voiceModel.status === 'downloading' ? 'downloading now' : `the Voice page in ${PANEL}`})`}.` : ''}
-- Shortcuts: ${HOTKEYS_OK ? `type a question to you: a quick tap of ${writeWords()} (press both and let go), which opens a text field beside the cursor (Enter sends, Shift+Enter adds a line, Esc or another tap closes it); show or hide you ${keyWords(keys().summon)}` : `on this Wayland desktop no app can have global shortcuts, so ${userName} binds keys to these commands in their desktop's keyboard settings: ${BIND.summon} (show or hide you), ${BIND.ask} (ask you), ${BIND.list} (the list), ${BIND.talk} (talk) and ${BIND.panel} (the panel)`}${SNAP_OK ? `; ask about an area ${keyWords(keys().snap)}` : ''}${CIRCLE_OK ? "; while holding the talk keys, moving the cursor round something circles it (no clicking; it snaps shut with a click when the circle closes, and loose lines don't count) and you'll see what they circled" : ''}${HOTKEYS_OK ? `; show the list ${keyWords(keys().list)}` : ''}.${HANDS_OK ? '' : ' Asking about an area, reading app windows, finding things on screen by their words and working other apps need the Roamies app, which isn\'t running here; draw there with x, y from a screenshot.'}`;
+- Shortcuts: ${HOTKEYS_OK ? `type a question to you: a quick tap of ${writeWords()} (press both and let go), which opens a text field beside the cursor (Enter sends, Shift+Enter adds a line, Esc or another tap closes it); show or hide you ${keyWords(keys().summon)}` : `on this Wayland desktop no app can have global shortcuts, so ${userName} binds keys to these commands in their desktop's keyboard settings: ${BIND.summon} (show or hide you), ${BIND.ask} (ask you), ${BIND.list} (the list), ${BIND.talk} (talk) and ${BIND.panel} (the panel)`}${SNAP_OK ? `; ask about an area ${keyWords(keys().snap)}` : ''}${CIRCLE_OK ? "; while holding the talk keys, moving the cursor round something circles it (no clicking; it snaps shut with a click when the circle closes, and loose lines don't count) and you'll see what they circled" : ''}${HOTKEYS_OK ? `; show the list ${keyWords(keys().list)}` : ''}.${HANDS_OK ? '' : ' Asking about an area, reading app windows, finding things on screen by their words and working other apps need the AI Assistant app, which isn\'t running here; draw there with x, y from a screenshot.'}`;
   const memory = `${open ? `Open commitments:\n${open}` : 'No open commitments.'}${done ? `\nDone today (ticked off on the list or by you; still shown struck through until midnight):\n${done}` : ''}
 ${facts.length ? `What you know about ${userName}${total > facts.length ? ` (${facts.length} most relevant of ${total})` : ''}:\n${facts.map((f) => `- ${f.id}: ${f.text}`).join('\n')}` : `You don't know anything lasting about ${userName} yet.`}${working ? `\n${working}` : ''}`;
   return { turn, memory };
@@ -790,7 +790,7 @@ async function agentModel() {
 }
 let agentRoute = null;
 // The chat's thinking level (null: off); side calls never think harder than this.
-const CHAT_THINKING = process.env.ROAMIES_THINKING === 'off' ? null : process.env.ROAMIES_THINKING || 'low';
+const CHAT_THINKING = process.env.AI_ASSISTANT_THINKING === 'off' ? null : process.env.AI_ASSISTANT_THINKING || 'low';
 function makeAgent(cc) {
   const m = getModel(config.model);
   controller = new AbortController();
@@ -827,8 +827,8 @@ function makeAgent(cc) {
     provider: config.provider,
     // One hour on Anthropic (falls back to 5 min elsewhere); the key keeps one conversation on one cache.
     cacheRetention: 'long',
-    promptCacheKey: session?.id ? `roamies-${session.id}` : undefined,
-    transportSessionId: session?.id ? `roamies-${session.id}` : undefined, // OpenCode Go routes and caches by it
+    promptCacheKey: session?.id ? `ai-assistant-${session.id}` : undefined,
+    transportSessionId: session?.id ? `ai-assistant-${session.id}` : undefined, // OpenCode Go routes and caches by it
     // No native search: the web_search tool works on every provider, and its results don't fill the context.
     resolveCredentials: async () => {
       const c = await credsFor();
@@ -1012,7 +1012,7 @@ const toolNames = new Map(); // tool call id → tool name (tool_call_end doesn'
 
 // Activity log: ~/.gg/sidekick/logs/YYYY-MM-DD.log, one line per event, kept 7 days. What Sidekick did and how it
 // went (tools, steps, timings, errors), for working out what went wrong. Typed text is reduced to its length.
-const LOG_DIR = path.join(process.env.ROAMIES_DATA_DIR ? path.join(process.env.ROAMIES_DATA_DIR, 'sidekick') : path.join(HOME, '.gg', 'sidekick'), 'logs');
+const LOG_DIR = path.join(process.env.AI_ASSISTANT_DATA_DIR ? path.join(process.env.AI_ASSISTANT_DATA_DIR, 'sidekick') : path.join(HOME, '.gg', 'sidekick'), 'logs');
 const logLine = (kind, data) => {
   const now = new Date(), day = now.toLocaleDateString('en-CA');
   const line = `${now.toISOString()} ${kind} ${typeof data === 'string' ? data : JSON.stringify(data)}\n`;
@@ -1058,7 +1058,7 @@ process.on('uncaughtException', (e, origin) => {
   setTimeout(() => process.exit(1), 200);
 });
 // One line per request in ~/.gg/sidekick/usage.jsonl: token counts and timings only, never what was said.
-const USAGE_FILE = path.join(process.env.ROAMIES_DATA_DIR ? path.join(process.env.ROAMIES_DATA_DIR, 'sidekick') : path.join(HOME, '.gg', 'sidekick'), 'usage.jsonl');
+const USAGE_FILE = path.join(process.env.AI_ASSISTANT_DATA_DIR ? path.join(process.env.AI_ASSISTANT_DATA_DIR, 'sidekick') : path.join(HOME, '.gg', 'sidekick'), 'usage.jsonl');
 const usageToday = { day: '', requests: 0, tokens: 0 };
 function logUsage(rec) {
   const day = new Date().toDateString();
@@ -1114,7 +1114,7 @@ let frontSoon = null;
 // Auto-listen: the turn whose reply ended on a question, until the overlay says it's been typed out and said.
 let autoTurn = null;
 // Wake word: the voice helper doesn't listen for "Hey Roamies" while a reply runs, until the overlay says it's been
-// typed out and said (reply_said), so Roamies can't wake itself. Let go after a while in case that never comes.
+// typed out and said (reply_said), so AI Assistant can't wake itself. Let go after a while in case that never comes.
 let wakeHeld = false, wakeHoldTimer = null;
 function holdWake(on) {
   clearTimeout(wakeHoldTimer); wakeHoldTimer = null;
@@ -1260,7 +1260,7 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
         const seen = (u.inputTokens ?? 0) + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0);
         if (seen) lastInput = { session: session?.id, tokens: seen, measured: true };
         use.calls++; use.in += u.inputTokens ?? 0; use.cacheRead += u.cacheRead ?? 0; use.cacheWrite += u.cacheWrite ?? 0; use.out += u.outputTokens ?? 0;
-        if (process.env.ROAMIES_USAGE) console.error(`[usage] in=${u.inputTokens ?? '?'} cacheRead=${u.cacheRead ?? 0} cacheWrite=${u.cacheWrite ?? 0} out=${u.outputTokens ?? '?'}`);
+        if (process.env.AI_ASSISTANT_USAGE) console.error(`[usage] in=${u.inputTokens ?? '?'} cacheRead=${u.cacheRead ?? 0} cacheWrite=${u.cacheWrite ?? 0} out=${u.outputTokens ?? '?'}`);
       }
       else if (e.type === 'thinking_delta') ui({ kind: 'agent', e: { type: 'thinking', text: e.text } });
       // The opening line's last sentence waits for more text before it's spoken; a tool call starting means none is
@@ -1279,7 +1279,7 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
         use.tools++;
         logLine('tool', { turn, id: e.toolCallId, name: e.name, args: redactArgs(e.name, e.args ?? {}) });
         toolNames.set(e.toolCallId, e.name);
-        if (process.env.ROAMIES_USAGE) { toolT.set(e.toolCallId, Date.now()); console.error(`[tool] ${e.name} ${JSON.stringify(e.args ?? {}).slice(0, 160)}`); }
+        if (process.env.AI_ASSISTANT_USAGE) { toolT.set(e.toolCallId, Date.now()); console.error(`[tool] ${e.name} ${JSON.stringify(e.args ?? {}).slice(0, 160)}`); }
         ui({ kind: 'agent', e: { type: 'tool', id: e.toolCallId, anim: anim(e.name, e.args ?? {}) } });
         if (activity.start(e.toolCallId, e.name, e.args ?? {})) panel();
       } else if (e.type === 'tool_call_end') {
@@ -1287,7 +1287,7 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
         activity.end(e.toolCallId, e.isError); panel();
         logLine(e.isError ? 'tool_error' : 'tool_done', { turn, id: e.toolCallId, ms: e.durationMs, result: String(e.result ?? '').replace(/\s+/g, ' ').slice(0, e.isError ? 1000 : 400) });
         if (e.isError && toolNames.get(e.toolCallId) !== 'plan_steps') trail.error(typeof e.result === 'string' ? e.result : '');
-        if (process.env.ROAMIES_USAGE) console.error(`[tool_end] ${e.isError ? 'ERROR' : 'ok'} ${Date.now() - (toolT.get(e.toolCallId) ?? Date.now())}ms ${String(typeof e.result === 'string' ? e.result : JSON.stringify(e.result ?? '')).replace(/\s+/g, ' ').slice(0, 160)}`);
+        if (process.env.AI_ASSISTANT_USAGE) console.error(`[tool_end] ${e.isError ? 'ERROR' : 'ok'} ${Date.now() - (toolT.get(e.toolCallId) ?? Date.now())}ms ${String(typeof e.result === 'string' ? e.result : JSON.stringify(e.result ?? '')).replace(/\s+/g, ' ').slice(0, 160)}`);
         ui({ kind: 'agent', e: { type: 'tool_end', id: e.toolCallId, isError: e.isError } });
       }
       else if (e.type === 'server_tool_call' && (spoken?.flush(), releaseBeat(true), voice?.beat(), true)) { ui({ kind: 'agent', e: { type: 'tool', id: e.id, anim: anim('web_search', {}) } }); activity.start(e.id, 'web_search', {}); panel(); }
@@ -1439,7 +1439,7 @@ async function apiKeyLogin(id, given) {
   else say(`Got it. ${PROVIDER_LABELS[provider]} is connected.`, 'happy');
 }
 
-// Removes a provider from Roamies: its sign-in and every kind of key it has saved (or Ollama's connection).
+// Removes a provider from AI Assistant: its sign-in and every kind of key it has saved (or Ollama's connection).
 async function signOut(provider) {
   if (!MENU_PROVIDERS.includes(provider)) return;
   const label = PROVIDER_LABELS[provider] ?? provider;
@@ -1447,7 +1447,7 @@ async function signOut(provider) {
   try {
     if (provider === 'local') await auth.clearCredentials(OLLAMA_KEY);
     else {
-      // Claude Code here is Roamies' own copy, so this signs only Roamies out.
+      // Claude Code here is AI Assistant's own copy, so this signs only AI Assistant out.
       if (provider === 'anthropic' && await auth.hasClaudeCodeLogin()) await signOutOfClaudeCode(auth);
       const plan = provider === 'openai' ? await auth.getCredentials(OPENAI_CHATGPT_KEY).catch(() => null) : null;
       for (const k of accountKeys(provider)) await auth.clearCredentials(k);
@@ -1672,9 +1672,9 @@ function onUpdateStatus(m) {
     }
   } else if (m.state === 'page') {
     update.installing = false; menu();
-    say(`I opened the download page for Roamies ${m.version}. Install it the way you installed me.`, 'happy');
+    say(`I opened the download page for AI Assistant ${m.version}. Install it the way you installed me.`, 'happy');
   } else if (m.state === 'downloading') {
-    say(`Downloading Roamies ${m.version}…`, 'determined');
+    say(`Downloading AI Assistant ${m.version}…`, 'determined');
   } else if (m.state === 'installed') {
     update.done = m.version; update.installing = false; panel();
     say(`Installed ${m.version}. Restarting!`, 'happy');
@@ -1742,8 +1742,8 @@ async function syncPass() {
     if (!folderReady(dir)) { syncInfo = { at: syncInfo.at, error: 'the sync folder isn\'t there right now' }; return; }
     if (!config.syncDevice) { config.syncDevice = newDevice(); saveConfig(); }
     const snap = syncSnapshot();
-    // Memory written by a newer Roamies isn't loaded here, so it would read as everything deleted.
-    if (snap.readOnly) { syncInfo = { at: syncInfo.at, error: 'memory here is from a newer Roamies: update Roamies on this computer' }; return; }
+    // Memory written by a newer AI Assistant isn't loaded here, so it would read as everything deleted.
+    if (snap.readOnly) { syncInfo = { at: syncInfo.at, error: 'memory here is from a newer AI Assistant: update AI Assistant on this computer' }; return; }
     // Memory here couldn't be read: forget what the last pass saw, so nothing counts as deleted here and the other
     // computers' copy comes back.
     if (!snap.trusted) logLine('sync', { recovering: true });
@@ -1838,11 +1838,11 @@ async function saveDiagnostics() {
       version: VERSION, provider: config.provider, model: config.model, signedIn: [...signedIn].filter(([, on]) => on).map(([p]) => p),
       busy, sidecarUpMinutes: Math.round(process.uptime() / 6) / 10,
       voice: { on: VOICE_OK && config.voice !== false, needsModel: NEEDS_MODEL, model: { status: voiceModel.status, error: voiceModel.error ?? undefined }, hotkeys: HOTKEYS_OK, keys: keys() },
-      replies: config.replies, tts: tts().id, voiceOn: speech.on, ...(tts().local ? { voicestudio: { ok: speech.local?.ok ?? null, reason: speech.local?.reason ?? null, engine: speech.local?.engine ?? null } } : {}), hands: hasHands(process.platform, process.env.ROAMIES_HANDS), handsPath: process.env.ROAMIES_HANDS ? 'set' : 'none',
+      replies: config.replies, tts: tts().id, voiceOn: speech.on, ...(tts().local ? { voicestudio: { ok: speech.local?.ok ?? null, reason: speech.local?.reason ?? null, engine: speech.local?.engine ?? null } } : {}), hands: hasHands(process.platform, process.env.AI_ASSISTANT_HANDS), handsPath: process.env.AI_ASSISTANT_HANDS ? 'set' : 'none',
       update: { available: update.available, result: update.result }, onboarded: config.onboarded, look: config.look, size: config.size,
     };
     const sections = [
-      ['System', system], ['Roamies', app], ['Screens, tray, panel, helpers and permissions (from the app)', shellOut],
+      ['System', system], ['AI Assistant', app], ['Screens, tray, panel, helpers and permissions (from the app)', shellOut],
       ...(audioText ? [['Audio devices (from the system)', audioText]] : []),
       ['Settings (secrets and names removed)', scrubConfig(config)],
       ['Agent log (sidekick.log)', await tail(path.join(gg, 'sidekick.log'), 400_000)],
@@ -1855,7 +1855,7 @@ async function saveDiagnostics() {
     logLine('diagnostics', { bytes: (await fs.stat(file)).size });
     reveal(file);
     const where = path.basename(path.dirname(file)) || 'your home folder';
-    say(`Saved ${path.basename(file)} in ${where}. Attach it to an issue at github.com/KenKaiii/Roamies/issues, or send it to whoever is helping you.`, 'happy');
+    say(`Saved ${path.basename(file)} in ${where}. Attach it to an issue at github.com/jmseguin/Jarvis/issues, or send it to whoever is helping you.`, 'happy');
     panelNote(`Saved ${path.basename(file)} in ${where}.`);
   } catch (e) {
     console.error('diagnostics', e);
@@ -2043,7 +2043,7 @@ function onVoice(m) {
 
 const overlays = () => send({ type: 'overlays', ids: ['sidekick'] });
 
-// What a second launch asked for (roamies --list | --talk | --ask).
+// What a second launch asked for (ai_assistant --list | --talk | --ask).
 async function onCli(action) {
   logLine('cli', { action });
   if (action === 'list') return showList({ seconds: 20, toggle: true });
@@ -2071,7 +2071,7 @@ function shellAnswer(m) {
 }
 
 // Type to ask: a text field beside the cursor (bar: the overlay's ask-bar.js), from the Ask button, the tray,
-// roamies --ask, or a tap of the typing shortcut. That tap opens it, or closes it when it's open, and what's sent
+// ai_assistant --ask, or a tap of the typing shortcut. That tap opens it, or closes it when it's open, and what's sent
 // from it interrupts a reply that's still running, as talking over it does.
 let barAsk = null;
 async function typeToAsk({ interrupt = false } = {}) {
@@ -2579,7 +2579,7 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   else if (m.type === 'copy_problem') copyProblem(m.from).catch((e) => console.error('copy problem', e));
   // The shell's answers to what tools asked of it (Linux screenshots and copying).
   else if (m.type === 'screenshot_done' || m.type === 'clipboard_done') shellAnswer(m);
-  // A second launch with a flag (roamies --talk and friends, bound to keys on Wayland); --summon and --panel the shell does itself.
+  // A second launch with a flag (ai_assistant --talk and friends, bound to keys on Wayland); --summon and --panel the shell does itself.
   else if (m.type === 'cli') onCli(String(m.action ?? '')).catch((e) => console.error('cli', e));
   else if (m.type === 'login_item_status') onLoginStatus(m);
   // The agents' corner: Stop, Allow / Don't allow, a file tile, Open folder, and closing a shelf or a failed row.
@@ -2655,9 +2655,9 @@ send({ type: 'login_item' });
 logLine('start', { version: VERSION, platform: process.platform, ...(LINUX ? { session: SESSION } : {}), model: config.model });
 // Windows 11: the tray icon is shown next to the clock once (wintray.mjs); after that, hiding it again is up to them.
 // Explorer adds its entry a moment after the icon appears, so it's looked for a few times.
-if (process.platform === 'win32' && process.env.ROAMIES_EXE && !config.trayShown) {
+if (process.platform === 'win32' && process.env.AI_ASSISTANT_EXE && !config.trayShown) {
   let tries = 0;
-  const tryShow = () => showTrayIcon({ exe: process.env.ROAMIES_EXE, exec: runInput }).then((r) => {
+  const tryShow = () => showTrayIcon({ exe: process.env.AI_ASSISTANT_EXE, exec: runInput }).then((r) => {
     tries++;
     if (r === 'missing' && tries < 10) return void setTimeout(tryShow, 3000).unref?.();
     logLine('tray_show', { result: r, tries });

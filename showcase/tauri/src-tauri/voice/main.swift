@@ -1,4 +1,4 @@
-// Voice helper for Roamies (macOS). Watches ⌃⌥, captures the mic and transcribes on-device with
+// Voice helper for AI Assistant (macOS). Watches ⌃⌥, captures the mic and transcribes on-device with
 // Apple's SpeechAnalyzer (macOS 26+, works with Siri and Dictation off; SFSpeechRecognizer before that).
 // A session never ends while ⌃⌥ is held: it ends on release (push-to-talk), or for hands-free
 // (quick tap) on a pause or the next press-and-release. Hold ⌃⌥ = push-to-talk (release sends). Quick tap = hands-free
@@ -38,7 +38,7 @@ enum ClickTarget {
         }
         return false
     }
-    /// The roles under a point and its app (empty when it can't be read); nil for Roamies' own windows.
+    /// The roles under a point and its app (empty when it can't be read); nil for AI Assistant's own windows.
     static func at(_ p: CGPoint) -> (roles: [String], app: String)? {
         let system = AXUIElementCreateSystemWide()
         AXUIElementSetMessagingTimeout(system, 0.25)
@@ -67,7 +67,7 @@ func log(_ s: String) {
 private let clock: DateFormatter = { let f = DateFormatter(); f.dateFormat = "HH:mm:ss"; return f }()
 func wakeLog(_ s: String) { log("wake \(clock.string(from: Date())): \(s)") }
 
-let dryRun = ProcessInfo.processInfo.environment["ROAMIES_VOICE_DRYRUN"] == "1"
+let dryRun = ProcessInfo.processInfo.environment["AI_ASSISTANT_VOICE_DRYRUN"] == "1"
 
 // --test-live <wav>: the recording stands in for the room, played in real time to whatever is listening (wake or a
 // take), with the wake word on and nothing muted. Runs the real paths end to end; exits 15 s after the recording ends.
@@ -726,11 +726,11 @@ enum WakeWord {
     static let defaultNames = ["roamies", "roamie"]
     // Set and read on the main thread.
     private(set) static var names = defaultNames
-    /// The chosen name as a word for the recogniser's hints ("Jarvis"); nil for Roamies.
+    /// The chosen name as a word for the recogniser's hints ("Jarvis"); nil for AI Assistant.
     private(set) static var custom: String?
-    static var hints: [String] { ["Roamies", "Roamie", "JARVIS"] + (custom.map { [$0] } ?? []) }
+    static var hints: [String] { ["AI Assistant", "Roamie", "JARVIS"] + (custom.map { [$0] } ?? []) }
 
-    /// Sets the name after the greeting; nil, "" or Roamies goes back to Roamies. Letters only, 4 to 20 of them;
+    /// Sets the name after the greeting; nil, "" or AI Assistant goes back to AI Assistant. Letters only, 4 to 20 of them;
     /// anything else is refused (returns false) and the name stays as it was.
     @discardableResult static func setName(_ raw: String?) -> Bool {
         let w = (raw ?? "").lowercased().filter { $0.isLetter }
@@ -741,7 +741,7 @@ enum WakeWord {
         return true
     }
 
-    /// Whether a heard word (within the allowed edits) is shaped like the name. Roamies keeps its own tuned rule.
+    /// Whether a heard word (within the allowed edits) is shaped like the name. AI Assistant keeps its own tuned rule.
     static func plausible(_ heard: String) -> Bool {
         guard custom != nil, let n = names.first else { return heard.hasPrefix("r") && heard.contains("m") && heard.count >= 5 }
         return heard.first == n.first && heard.count >= n.count - 1
@@ -767,7 +767,7 @@ enum WakeWord {
             let before = text[(i == 0 ? text.startIndex : words[i - 1].range.upperBound) ..< w.range.lowerBound]
             // Up to two stray words may come first ("um", "okay", a cough heard as "the"); live text rarely has a full stop.
             let atStart = i <= 2 || before.contains(where: { ".?!".contains($0) })
-            // Only spaces or a comma between greeting and name ("Hey, Roamies").
+            // Only spaces or a comma between greeting and name ("Hey, AI Assistant").
             guard text[w.range.upperBound ..< words[i + 1].range.lowerBound].allSatisfy({ $0 == " " || $0 == "," }) else { continue }
             var candidates = [(words[i + 1].word, words[i + 1].range.upperBound, allowedEdits)]
             // Split in two ("Roam ies"): joined, it must be a closer match.
@@ -850,10 +850,10 @@ final class Voice {
     private var finishTimer: Timer?
     private let feed = Feed()
     private var configObserver: NSObjectProtocol?
-    // Wake word: on in settings; held off while Roamies answers and speaks; resting just after a take.
+    // Wake word: on in settings; held off while AI Assistant answers and speaks; resting just after a take.
     private var wakeOn = false
     var wakeHold = false {
-        didSet { if wakeOn && wakeHold != oldValue { wakeLog(wakeHold ? "paused while Roamies answers" : "resumed") } }
+        didSet { if wakeOn && wakeHold != oldValue { wakeLog(wakeHold ? "paused while AI Assistant answers" : "resumed") } }
     }
     private var wakeLoud = 0.0, wakeLevelAt = 0.0 // seconds loud enough to be speech in this wake window
     private var wakeCooldownUntil = 0.0, wakeRetryAt = 0.0, wakeAt = 0.0
@@ -924,7 +924,7 @@ final class Voice {
     // whether it's on something that does something, so the drawing goes with the screen it was about. A global
     // monitor, not the button state, so a tap-to-click (shorter than a frame) isn't missed.
     private var clickMonitor: Any?
-    private let clickQueue = DispatchQueue(label: "roamies.voice.clicks")
+    private let clickQueue = DispatchQueue(label: "ai_assistant.voice.clicks")
     var watchClicks = false {
         didSet {
             guard watchClicks != oldValue else { return }
@@ -968,7 +968,7 @@ final class Voice {
             if chord && !prevChord && !blocked { stopWake(); arm(now); return }
             if !wakeOn || wakeHold { stopWake(); return }
             let paused = !wakeText.isEmpty && now - heardAt > Self.wakePause && now - voiceAt > Self.wakePause / 2
-            // The 30 s refresh waits for a quiet moment, so it can't split "Hey" from "Roamies".
+            // The 30 s refresh waits for a quiet moment, so it can't split "Hey" from "AI Assistant".
             let quiet = now - voiceAt > Self.wakePause / 2 && now - heardAt > Self.wakePause
             if paused || (now - wakeAt > Self.wakeRecycle && quiet) || now - wakeAt > Self.wakeRecycle * 2 { recycleWake(now) }
         case .armed:
@@ -1008,8 +1008,8 @@ final class Voice {
         // The drawing layer first: starting the mic below holds this thread for a moment (longer with Bluetooth),
         // and a drag begun in that moment would otherwise land in the app underneath.
         ink.setArmed(true)
-        // ROAMIES_VOICE_DRYRUN_TEXT: what a dry run "hears", to test what goes out with the words (like pen marks).
-        if dryRun { best = ProcessInfo.processInfo.environment["ROAMIES_VOICE_DRYRUN_TEXT"] ?? ""; return }
+        // AI_ASSISTANT_VOICE_DRYRUN_TEXT: what a dry run "hears", to test what goes out with the words (like pen marks).
+        if dryRun { best = ProcessInfo.processInfo.environment["AI_ASSISTANT_VOICE_DRYRUN_TEXT"] ?? ""; return }
         // Already allowed: start the mic now so the first word isn't lost. Otherwise wait until
         // the press is clearly a talk (hold or tap), so shortcuts like ⌃⌥S never trigger a prompt.
         if authorized { startAudio(device: InputDevice.forTake()) }
@@ -1448,7 +1448,7 @@ final class Voice {
 
 // ---------- one-shot permission modes (used by the setup guide) ----------
 // --perms prints the current state; --request <mic|speech|screen> asks, then prints the state.
-// Run as a child of Roamies, so macOS attributes the prompts and grants to Roamies.
+// Run as a child of AI Assistant, so macOS attributes the prompts and grants to AI Assistant.
 func permStatus() -> [String: Any] {
     func av(_ s: AVAuthorizationStatus) -> String { s == .authorized ? "granted" : s == .notDetermined ? "unknown" : "denied" }
     func sp(_ s: SFSpeechRecognizerAuthorizationStatus) -> String { s == .authorized ? "granted" : s == .notDetermined ? "unknown" : "denied" }
@@ -1498,8 +1498,8 @@ if args.contains("--test-wake") {
     check("Hey Roamies", "")
     check("Hey Roamies, open Safari.", "open Safari.")
     check("hey roamies open safari", "open safari")
-    check("Hey, Roamies.", "")
-    check("Hi Roamies what time is it?", "what time is it?")
+    check("Hey, AI Assistant.", "")
+    check("Hi AI Assistant what time is it?", "what time is it?")
     check("Hey Romies", "")
     check("Hey Roamie's, open Notes", "open Notes")
     check("Hey Roamie", "")
@@ -1519,15 +1519,15 @@ if args.contains("--test-wake") {
     check("Hey Remy", nil)
     check("Hey rhymes", nil)
     check("Hey room is ready", nil)
-    check("Roamies is great", nil)
-    check("I told him hey Roamies", nil)
-    check("Um hey Roamies, open Mail", "open Mail")
-    check("Okay, hi Roamies", "")
+    check("AI Assistant is great", nil)
+    check("I told him hey AI Assistant", nil)
+    check("Um hey AI Assistant, open Mail", "open Mail")
+    check("Okay, hi AI Assistant", "")
     check("The hey Romies what time is it", "what time is it")
-    check("So I said hey Roamies", nil)
+    check("So I said hey AI Assistant", nil)
     check("Hey there", nil)
     check("Hey", nil)
-    check("Hey. Roamies", nil)
+    check("Hey. AI Assistant", nil)
     check("", nil)
     // A name of the user's own.
     func named(_ ok: Bool, _ name: String) { let got = WakeWord.setName(name); print("\(got == ok ? "ok" : "FAIL") name \"\(name)\" \(ok ? "taken" : "refused")"); if got != ok { bad += 1 } }
@@ -1676,11 +1676,11 @@ Thread.detachNewThread {
         case "watch_clicks": let on = msg["on"] as? Bool == true; DispatchQueue.main.async { voice.watchClicks = on }
         case "sound": if let on = msg["on"] as? Bool { DispatchQueue.main.async { SnapCue.soundOn = on } }
         case "wake": if let on = msg["on"] as? Bool { DispatchQueue.main.async { voice.setWake(on) } }
-        // The name after "Hey" (empty: Roamies). Only whether it's custom is logged, never the word.
+        // The name after "Hey" (empty: AI Assistant). Only whether it's custom is logged, never the word.
         case "wake_name":
             let word = msg["word"] as? String ?? ""
-            DispatchQueue.main.async { log(WakeWord.setName(word) ? "wake name: \(WakeWord.custom == nil ? "Roamies" : "custom")" : "wake name refused") }
-        // Roamies is answering or speaking: don't listen for the phrase (it mustn't wake itself).
+            DispatchQueue.main.async { log(WakeWord.setName(word) ? "wake name: \(WakeWord.custom == nil ? "AI Assistant" : "custom")" : "wake name refused") }
+        // AI Assistant is answering or speaking: don't listen for the phrase (it mustn't wake itself).
         case "wake_hold": let on = msg["on"] as? Bool == true; DispatchQueue.main.async { voice.wakeHold = on }
         case "wake_mic":
             if let raw = msg["mode"] as? String, let mode = InputDevice.WakeMicMode(rawValue: raw) {
@@ -1714,7 +1714,7 @@ Thread.detachNewThread {
         default: break
         }
     }
-    // Roamies quit: never leave the Mac muted or media paused.
+    // AI Assistant quit: never leave the Mac muted or media paused.
     DispatchQueue.main.sync { OutputMute.end(); MediaPause.endHold() }
     exit(0)
 }

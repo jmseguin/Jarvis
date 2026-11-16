@@ -569,7 +569,7 @@ export function checkAppControl({ app = '', bundleId = '', steps = [] } = {}, { 
   const label = String(app || bundleId || 'this app').trim();
   if (isHardBlockedApp(app, bundleId)) return verdict(BLOCK, `${label} is protected and cannot be controlled.`);
   if (!isAppApproved(app, bundleId, { approvedApps, sessionApps })) {
-    return verdict(ASK, `${label} is not approved for Roamies control yet.`);
+    return verdict(ASK, `${label} is not approved for AI Assistant control yet.`);
   }
   const pressesEnter = Array.isArray(steps) && steps.some((s) => s?.do === 'key' && /^(return|enter)$/i.test(String(s.key ?? '')));
   if (pressesEnter && confirmBeforeEnter) {
@@ -639,14 +639,14 @@ export function checkRegistry({ mode, path: p } = {}) {
   return verdict(BLOCK, `Registry mode "${mode}" isn't one I know.`);
 }
 
-// Programs whose death breaks Windows, the desktop, security software, or Roamies itself.
+// Programs whose death breaks Windows, the desktop, security software, or AI Assistant itself.
 const PROTECTED_PROCESSES = new Set([
   'system', 'registry', 'smss', 'csrss', 'wininit', 'winlogon', 'services', 'lsass', 'lsaiso', 'svchost', 'dwm', 'fontdrvhost',
-  'explorer', 'sihost', 'ctfmon', 'wmiprvse', 'spoolsv', 'msmpeng', 'securityhealthservice', 'node', 'roamies',
+  'explorer', 'sihost', 'ctfmon', 'wmiprvse', 'spoolsv', 'msmpeng', 'securityhealthservice', 'node',
   'ai_assistant', 'aiassistant', 'ai_assistant-voice', 'ai_assistant-hands',
 ]);
 
-/** The Process tool: listing is fine; killing asks, and never touches Windows or Roamies itself. */
+/** The Process tool: listing is fine; killing asks, and never touches Windows or AI Assistant itself. */
 export function checkProcess({ mode, name, pid } = {}) {
   const m = String(mode ?? '').toLowerCase();
   if (m === 'list') return verdict(SAFE);
@@ -655,7 +655,7 @@ export function checkProcess({ mode, name, pid } = {}) {
   const id = pid == null || pid === '' ? null : Number(pid);
   if (!n && id == null) return verdict(BLOCK, 'Say which process to close (a name or a process id).');
   if (id != null && (!Number.isInteger(id) || id <= 4)) return verdict(BLOCK, 'That process id belongs to Windows itself.');
-  if (n && PROTECTED_PROCESSES.has(n)) return verdict(BLOCK, `${name} is part of Windows or Roamies, so I won't close it.`);
+  if (n && PROTECTED_PROCESSES.has(n)) return verdict(BLOCK, `${name} is part of Windows or AI Assistant, so I won't close it.`);
   return verdict(ASK, `Close ${n || `process ${id}`}?`);
 }
 

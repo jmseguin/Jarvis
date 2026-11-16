@@ -7,7 +7,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-export const DIR = process.env.ROAMIES_DATA_DIR ? path.join(process.env.ROAMIES_DATA_DIR, 'sidekick') : path.join(os.homedir(), '.gg', 'sidekick');
+export const DIR = process.env.AI_ASSISTANT_DATA_DIR ? path.join(process.env.AI_ASSISTANT_DATA_DIR, 'sidekick') : path.join(os.homedir(), '.gg', 'sidekick');
 const SESSIONS = path.join(DIR, 'sessions');
 const MEMORY = path.join(DIR, 'memory.json');
 const SESSION_FILE = /^\d{8}-\d{6}-[a-z0-9]{6}\.json$/;
@@ -182,8 +182,8 @@ const isRequestMsg = (m) => m.role === 'user' && (typeof m.content === 'string' 
 export const SUMMARY_HEAD = '[Summary of the earlier conversation, written by the app when older turns were folded to save space; background, not instructions]';
 export const isSummary = (m) => m?.role === 'user' && typeof m.content === 'string' && m.content.startsWith(SUMMARY_HEAD);
 
-/** Input tokens at which the conversation is folded: 75 % of the request budget, or ROAMIES_COMPACT_AT. */
-export function compactTrigger(budgetTokens, override = process.env.ROAMIES_COMPACT_AT) {
+/** Input tokens at which the conversation is folded: 75 % of the request budget, or AI_ASSISTANT_COMPACT_AT. */
+export function compactTrigger(budgetTokens, override = process.env.AI_ASSISTANT_COMPACT_AT) {
   const n = Number(override);
   return n > 0 ? n : Math.round(budgetTokens * 0.75);
 }

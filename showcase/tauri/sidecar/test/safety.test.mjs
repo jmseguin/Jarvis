@@ -55,7 +55,7 @@ cases('read', (p) => checkRead(p, HOME), [
   ['~/.ssh/id_ed25519', BLOCK], ['~/.ssh/config', BLOCK], ['~/.gg/auth.json', BLOCK], ['~/projects/app/.env', BLOCK],
   ['~/projects/app/.env.local', BLOCK], ['~/.aws/credentials', BLOCK], ['~/certs/server.key', BLOCK], ['~/.config/gh/hosts.yml', BLOCK],
   ['~/Library/Containers/com.apple.mail/Data', BLOCK], ['~/Library/Messages/chat.db', BLOCK], ['~/../ken/.ssh/id_rsa', BLOCK],
-  ['/Users/ken/.ssh/id_rsa', BLOCK], ['~/Library/Application Support/Google/Chrome/Default/Cookies', BLOCK], ['~/.tauri/roamies-updater.key', BLOCK],
+  ['/Users/ken/.ssh/id_rsa', BLOCK], ['~/Library/Application Support/Google/Chrome/Default/Cookies', BLOCK], ['~/.tauri/ai-assistant-updater.key', BLOCK],
   ['~/.env.example.md', SAFE], ['~/environment.txt', SAFE],
 ]);
 assert.equal(checkRead('~', HOME, { recursive: true }).level, BLOCK, 'searching all of home is blocked');
@@ -66,7 +66,7 @@ assert.equal(checkRead('~', HOME).level, SAFE, 'listing home (not recursing) is 
 cases('write', (p) => checkWrite(p, HOME), [
   ['~/notes.txt', SAFE], ['~/Desktop/todo.md', SAFE], ['/tmp/out.txt', SAFE], ['~/projects/app/src/new.js', SAFE],
   ['~/.zshrc', BLOCK], ['~/.bash_profile', BLOCK], ['~/Library/LaunchAgents/evil.plist', BLOCK], ['~/.ssh/authorized_keys', BLOCK],
-  ['~/.gg/auth.json', BLOCK], ['/etc/hosts', BLOCK], ['/Applications/Roamies.app/Contents/x', BLOCK], ['/usr/local/bin/x', BLOCK],
+  ['~/.gg/auth.json', BLOCK], ['/etc/hosts', BLOCK], ['/Applications/AIAssistant.app/Contents/x', BLOCK], ['/usr/local/bin/x', BLOCK],
   ['~/.gitconfig', BLOCK], ['~/projects/app/.env', BLOCK], ['~/../../etc/passwd', BLOCK], ['~/Library/Preferences/com.apple.x.plist', BLOCK],
 ]);
 assert.equal(checkWrite('~/notes.txt', HOME, { exists: true }).level, ASK, 'overwriting an existing file asks first');
@@ -318,7 +318,7 @@ cases('read-only loopholes', cmd, [
 ]);
 // Wildcards and symlinks into secrets, with real files: ~/.ss*/id_* reads ~/.ssh/id_rsa once the shell expands it.
 {
-  const home = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'roamies-safety-')));
+  const home = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'ai-assistant-safety-')));
   fs.mkdirSync(nodePath.join(home, '.ssh')); fs.writeFileSync(nodePath.join(home, '.ssh', 'id_rsa'), 'key');
   fs.writeFileSync(nodePath.join(home, 'notes.txt'), 'hi');
   let links = true; // Windows may not allow symlinks without extra rights: those cases are skipped there
@@ -340,13 +340,13 @@ cases('read-only loopholes', cmd, [
   // An agent's own folder: overwriting inside it is fine without a yes; outside it, or through a link that leads out
   // of it, still asks, and protected files stay blocked.
   {
-    const own = nodePath.join(home, 'Roamies', 'Agents', 'Dog page');
+    const own = nodePath.join(home, 'AI Assistant', 'Agents', 'Dog page');
     fs.mkdirSync(nodePath.join(own, 'files'), { recursive: true });
     fs.writeFileSync(nodePath.join(own, 'files', 'index.html'), 'x');
     fs.writeFileSync(nodePath.join(home, 'notes.txt'), 'x');
     const w = (p, exists = true) => checkWrite(p, home, { exists, own });
     assert.equal(w(nodePath.join(own, 'files', 'index.html')).level, SAFE, 'overwriting in its own folder needs no yes');
-    assert.equal(w('~/Roamies/Agents/Dog page/files/index.html').level, SAFE, 'also written from ~');
+    assert.equal(w('~/AI Assistant/Agents/Dog page/files/index.html').level, SAFE, 'also written from ~');
     assert.equal(w('~/notes.txt').level, ASK, 'overwriting outside its folder still asks');
     assert.equal(w(nodePath.join(own, '..', 'other', 'a.txt')).level, ASK, 'a .. out of its folder still asks');
     assert.equal(checkWrite(nodePath.join(own, 'files', 'index.html'), home, { exists: true }).level, ASK, 'without own it asks as before');

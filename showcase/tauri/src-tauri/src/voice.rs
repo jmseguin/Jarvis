@@ -40,9 +40,9 @@ pub(crate) fn start_voice(app: &AppHandle) {
     if let Some(dir) = app.state::<VoiceModel>().0.lock().unwrap().clone() {
         cmd.arg("--model").arg(dir);
     }
-    // Debug builds: ROAMIES_TEST_AUDIO=<wav> stands in for the microphone, to test talking with no mic (CI, Docker).
+    // Debug builds: AI_ASSISTANT_TEST_AUDIO=<wav> stands in for the microphone, to test talking with no mic (CI, Docker).
     #[cfg(debug_assertions)]
-    if let Some(wav) = std::env::var_os("ROAMIES_TEST_AUDIO") {
+    if let Some(wav) = std::env::var_os("AI_ASSISTANT_TEST_AUDIO") {
         cmd.arg("--test-audio").arg(wav);
     }
     let mut child = match hide_console(&mut cmd).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(log_stdio("sidekick-voice.log")).spawn() {
@@ -172,7 +172,7 @@ pub(crate) fn set_hotkey(slot: usize, accel: &str) -> Result<(), String> {
             return Ok(());
         }
         if keys.iter().enumerate().any(|(i, k)| i != slot && k.map(|c| c.id()) == Some(new.id())) {
-            return Err("already used by the other Roamies shortcut".to_string());
+            return Err("already used by the other AI Assistant shortcut".to_string());
         }
         if let Some(old) = current {
             let _ = manager.unregister(old);
@@ -233,7 +233,7 @@ fn handle_voice(app: &AppHandle, msg: Value) {
         to_sidekick_buddy(app, &msg);
         return;
     }
-    // A click in another app while a drawing is up (see watch_clicks); not one on Roamies' own cards.
+    // A click in another app while a drawing is up (see watch_clicks); not one on AI Assistant's own cards.
     if msg.get("type").and_then(Value::as_str) == Some("click") {
         if !crate::OVERLAY_HOT.load(Ordering::Relaxed) {
             to_sidecar(app, &json!({ "type": "user_click", "x": msg.get("x"), "y": msg.get("y"), "role": msg.get("role"), "app": msg.get("app"), "acts": msg.get("acts") }));

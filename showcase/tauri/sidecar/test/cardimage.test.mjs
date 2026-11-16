@@ -12,7 +12,7 @@ assert.equal(imageName('..', at), 'AI Assistant – card – 2026-11-12 15.04.09
 assert.equal(imageName('', at).startsWith('AI Assistant – card'), true);
 assert.ok(imageName('x'.repeat(200), at).length < 80, 'kept short');
 
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'roamies-img-'));
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-assistant-img-'));
 const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(200, 1)]);
 const f1 = await saveCardImage({ title: 'planets', data: png.toString('base64') }, dir);
 const f2 = await saveCardImage({ title: 'planets', data: png.toString('base64') }, dir);

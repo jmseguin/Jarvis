@@ -7,6 +7,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
+import { dataRoots, moveLegacyDir } from './legacy.mjs';
 
 export const MODEL = {
   id: 'parakeet-tdt-0.6b-v3-int8',
@@ -22,7 +23,9 @@ export const totalBytes = (model = MODEL) => model.files.reduce((n, f) => n + f.
 export const sizeLabel = (model = MODEL) => `${Math.round(totalBytes(model) / 1e6)} MB`;
 
 export function modelDir(model = MODEL) {
-  const root = process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Roamies') : path.join(os.homedir(), '.gg', 'sidekick');
+  const roots = dataRoots();
+  if (roots) moveLegacyDir(roots.before, roots.now); // the folder used to be named after the upstream app
+  const root = roots ? roots.now : path.join(os.homedir(), '.gg', 'sidekick');
   return path.join(root, 'models', model.id);
 }
 

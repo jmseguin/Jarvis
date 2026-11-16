@@ -123,7 +123,7 @@
 
   let el = null, body = null, statusEl = null, text = '', streaming = false, raf = 0, closeTimer = 0, hovered = false, follow = true, drag = null;
   // Older versions kept where it was last dragged and opened every later card there: that spot is forgotten.
-  try { localStorage.removeItem('roamies.cardPos'); } catch {}
+  try { localStorage.removeItem('aiAssistant.cardPos'); } catch {}
   const build = () => {
     el = document.createElement('section');
     el.className = 'rp';
