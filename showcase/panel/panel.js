@@ -524,8 +524,10 @@
       status,
       el('p', { className: 'empty note', textContent: "Connect saves these settings and sends one short test message. After that, everything you say goes to this server, under its owner's privacy policy. It works with text only, so no screenshots are sent." }));
   }
-  const customSetup = (p) => link(ui.key === p.id ? 'Cancel' : 'Set up', () => toggleKey(p.id), { k: `addkey:${p.id}`, aria: `Set up ${p.label}` });
-  const customChange = (p) => link(ui.key === p.id ? 'Cancel' : 'Change', () => toggleKey(p.id), { k: `addkey:${p.id}`, aria: `Change ${p.label}` });
+  // Opening the form brings it into view (it is taller than the room under the row, so the list scrolls).
+  const openCustom = (p) => { toggleKey(p.id); setTimeout(() => { const f = document.querySelector('.customform:not([hidden])'); f?.scrollIntoView({ block: 'nearest', behavior: REDUCED.matches ? 'auto' : 'smooth' }); }, 200); };
+  const customSetup = (p) => link(ui.key === p.id ? 'Cancel' : 'Set up', () => openCustom(p), { k: `addkey:${p.id}`, aria: `Set up ${p.label}` });
+  const customChange = (p) => link(ui.key === p.id ? 'Cancel' : 'Change', () => openCustom(p), { k: `addkey:${p.id}`, aria: `Change ${p.label}` });
 
   const signIn = (p) => link('Sign in', () => act(`login:${p.id}`), { k: `login:${p.id}`, aria: `Sign in to ${p.label}`, disabled: !!state.loggingIn });
   const connect = (p) => link('Connect', () => act('local:connect'), { k: 'local:connect', aria: `Connect ${p.label}` });

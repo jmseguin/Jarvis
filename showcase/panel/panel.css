@@ -141,7 +141,8 @@ html, body { height: 100%; background: transparent; }
 .pane[hidden] { display: none; }
 /* A paged list takes the room left and shows as many rows as fit there (panel.js measures). */
 .group.paged { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.pagebox { flex: 1; min-height: 0; overflow: hidden; }
+/* A list that fits shows no bar; an open row taller than the box (the custom provider's form) scrolls inside it. */
+.pagebox { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; }
 /* An account: its row, and its key field under it while that's open. */
 .acct { display: grid; gap: 6px; padding: 4px 0; }
 .acct .note { white-space: normal; }
