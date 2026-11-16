@@ -10,7 +10,7 @@ import { SAFE, checkDrawAction, checkLink, checkOpen, checkRead, checkWrite, isH
 import { agentsRoot, createAgents, holdAfterLaunch, newsDesk, wantsAgent } from './agents.mjs';
 import { agentEvents, stallWatch } from './agentstream.mjs';
 import {
-  AUTH_PROVIDERS, AuthStorage, OPENAI_CHATGPT_KEY, apiKeyStorageKeys, claudeCodeEnv, dualAuthProvider, getAuthStorageKeys, getContextWindow, getDefaultModel, getModel,
+  AUTH_PROVIDERS, AuthStorage, OPENAI_CHATGPT_KEY, apiKeyStorageKeys, claudeCodeEnv, clearRuntimeModels, dualAuthProvider, getAuthStorageKeys, getContextWindow, getDefaultModel, getModel,
   getModelsForProvider, loginChatGPT, ollamaServedContext, parseLocalModelId, registerRuntimeModels, resolveClaudeCodeBinary, revokeChatGPTSignIn, signInWithClaudeCode,
   signOutOfClaudeCode, storageKeyProvider,
 } from '@kenkaiiii/gg-core';
@@ -49,6 +49,7 @@ import { createActivity } from './activity.mjs';
 import { canCircle, canSnap, hasHands, hasHotkeys, hasVoice, linuxSession, micTrouble, needsVoiceModel, platformLine, samePair, seesPointer, writeChord, writeChords } from './platform.mjs';
 import { accountKeys, keyCards, keyKinds, signInCards } from './providers.mjs';
 import { OLLAMA, OLLAMA_KEY, connectLocal, contextNote, withWindow } from './local.mjs';
+import { CUSTOM_ID, CUSTOM_KEY, DEFAULT_NAME as CUSTOM_DEFAULT_NAME, cleanCustom, customModelInfo, isCustomModel, testCustom } from './custom.mjs';
 import { activityLogs, buildReport, redact, reportDir, reportName, reveal, run, scrubConfig, tail } from './diagnostics.mjs';
 import { detailsText, explain } from './errors.mjs';
 import { aboutAiAssistant } from './about.mjs';
@@ -90,10 +91,13 @@ const OAUTH = {
   // The current sign-in's ID token skips OpenAI's account picker.
   openai: async (cb, signal) => { const previous = await auth.getCredentials(OPENAI_CHATGPT_KEY).catch(() => null); return loginChatGPT(cb, { ...(previous ? { previous } : {}), signal }); },
 };
-const PROVIDER_LABELS = { ...Object.fromEntries(AUTH_PROVIDERS.map((p) => [p.value, p.label])), local: 'Ollama (on this computer)' };
+const PROVIDER_LABELS = { ...Object.fromEntries(AUTH_PROVIDERS.map((p) => [p.value, p.label])), local: 'Ollama (on this computer)', [CUSTOM_ID]: 'Custom OpenAI Provider' };
+// What to call the provider of the current (or a given) model: a custom model is shown under the name the user gave it,
+// though it runs on gg-core's generic "local" provider.
+const labelOf = (provider = config.provider, model = config.model) => (provider === 'local' && isCustomModel(model) ? (config.custom?.name || CUSTOM_DEFAULT_NAME) : PROVIDER_LABELS[provider] ?? provider);
 // What a sign-in is called (the product), where the provider's label is the company.
 const SIGNIN_NAMES = { anthropic: 'Claude', openai: 'ChatGPT' };
-const MENU_PROVIDERS = ['anthropic', 'openai', ...AUTH_PROVIDERS.map((p) => p.value), 'local'].filter((v, i, a) => a.indexOf(v) === i);
+const MENU_PROVIDERS = ['anthropic', 'openai', ...AUTH_PROVIDERS.map((p) => p.value), 'local', CUSTOM_ID].filter((v, i, a) => a.indexOf(v) === i);
 const FAST = { anthropic: 'claude-haiku-5-5', openai: 'gpt-6-luna', gemini: 'gemini-3.8-flash' };
 
 // ---------- config ----------
@@ -102,7 +106,7 @@ const DEFAULT_KEYS = process.platform === 'win32'
   ? { talk: ['control', 'option'], summon: 'Control+Shift+KeyS', snap: 'Control+Shift+KeyA', list: 'Control+Shift+KeyL' }
   : { talk: ['control', 'option'], summon: 'Control+Alt+KeyS', snap: 'Control+Alt+KeyA', list: 'Control+Alt+KeyL' };
 const DEFAULTS = {
-  provider: null, model: null, userName: '', sound: true, allowActions: false, approvedApps: {}, appsSeeded: false, confirmBeforeEnter: true, uiTrustLevel: 1, mcpClients: {}, voice: true,
+  provider: null, model: null, custom: null /* { name, baseUrl, model } of the user's own OpenAI-compatible provider; its key is in auth.json */, userName: '', sound: true, allowActions: false, approvedApps: {}, appsSeeded: false, confirmBeforeEnter: true, uiTrustLevel: 1, mcpClients: {}, voice: true,
   onboarded: false, onboardStep: 0, filesAsked: false, keys: DEFAULT_KEYS, muteWhileTalking: true, autoListen: false, wakeWord: false, followUpQuestions: true, inputDevice: '', outputDevice: '', setupVersion: 0, size: 'default', look: 'classic', introDone: false,
   replies: 'text', // 'voice': spoken (with Fish Audio or Gemini) as well as shown
   tts: 'fish', // which one speaks: 'fish' (Fish Audio), 'gemini' or 'voicestudio' (the VoiceStudio app on this computer)
@@ -308,6 +312,42 @@ async function refreshAuth() {
     for (const k of apiKeyStorageKeys(meta.value)) if (await auth.hasCredentials(k).catch(() => false)) storedKeys.add(k); else storedKeys.delete(k);
   }
   if (await auth.hasCredentials(OLLAMA_KEY).catch(() => false)) storedKeys.add(OLLAMA_KEY); else storedKeys.delete(OLLAMA_KEY);
+  // The custom provider is a credential of its own; 'custom' isn't a gg-core provider, so it's set here, not above.
+  const hasCustom = await auth.hasCredentials(CUSTOM_KEY).catch(() => false);
+  if (hasCustom) storedKeys.add(CUSTOM_KEY); else storedKeys.delete(CUSTOM_KEY);
+  signedIn.set(CUSTOM_ID, hasCustom);
+  syncCustom();
+}
+// Models live only in memory (gg-core's runtime list), so the custom one is registered again from config on every
+// refresh, which includes startup, and dropped when its key is gone.
+function syncCustom() {
+  clearRuntimeModels((m) => m.authStorageKeys?.includes(CUSTOM_KEY));
+  const c = config.custom;
+  if (storedKeys.has(CUSTOM_KEY) && c?.baseUrl && c.model) registerRuntimeModels([customModelInfo(c)]);
+}
+// Sets up (or changes) the user's own OpenAI-compatible provider from the form. → { ok, name } or { ok: false, why }.
+// Nothing is saved until one small request to the server has worked, so mistakes show up here, in plain words.
+async function customLogin(input) {
+  const r = cleanCustom(input);
+  if (!r.ok) return { ok: false, why: r.why };
+  const { name, baseUrl, model } = r.value;
+  let { key } = r.value;
+  if (!key) {
+    // Left empty on a form that's already set up: keep the saved key for the same server.
+    const prev = await auth.getCredentials(CUSTOM_KEY).catch(() => null);
+    if (prev?.baseUrl === baseUrl && prev.accessToken && prev.accessToken !== 'local') key = prev.accessToken;
+  }
+  const t = await testCustom({ baseUrl, key, model });
+  if (!t.ok) return { ok: false, why: t.why };
+  await auth.setLocalEndpoint(CUSTOM_ID, baseUrl, key || undefined);
+  config.custom = { name, baseUrl, model };
+  await refreshAuth();
+  config.provider = 'local'; config.model = customModelInfo(config.custom).id;
+  agent = null; saveConfig(); menu();
+  logLine('custom_provider', { host: new URL(baseUrl).host, model });
+  if (onboarding) { ob({ kind: 'login', provider: CUSTOM_ID, phase: 'done' }); obState(); }
+  else say(`Got it. ${name} is connected.`, 'happy');
+  return { ok: true, name };
 }
 // Ollama's models, found when it's connected: those that can see and use tools. ollama.windows: the context it
 // really serves each one with, measured once the model is loaded (until then gg-core may guess 4k).
@@ -319,6 +359,7 @@ async function syncLocal(save = false) {
 }
 // Loads the model the way a request would and reads its real window, so requests are fitted to it.
 async function measureLocal(id) {
+  if (isCustomModel(id)) return; // Ollama's own probe, and the custom server isn't Ollama
   const raw = parseLocalModelId(id)?.rawId;
   const m = getModel(id);
   if (!raw || !m || ollama.windows.has(id)) return;
@@ -825,6 +866,8 @@ function makeAgent(cc) {
   agent = new Agent({
     ...common,
     provider: config.provider,
+    // A model that can't see (a custom provider is text only) gets pictures as text placeholders, not as images.
+    ...(m?.supportsImages === false ? { supportsImages: false } : {}),
     // One hour on Anthropic (falls back to 5 min elsewhere); the key keeps one conversation on one cache.
     cacheRetention: 'long',
     promptCacheKey: session?.id ? `ai-assistant-${session.id}` : undefined,
@@ -1087,7 +1130,9 @@ async function readyAgent() {
   await voiceKeysLoaded;
   await refreshAuth();
   if (!ensureModel()) { openPanel('model'); return 'Sign in to an AI provider first: I opened the Model page for you. Then ask me again!'; }
-  if (config.provider === 'local') {
+  if (config.provider === 'local' && isCustomModel(config.model)) {
+    if (!getModel(config.model)) return `${labelOf()} isn't set up anymore. Set it up again on the Model page in ${PANEL}.`;
+  } else if (config.provider === 'local') {
     if (!getModel(config.model)) await syncLocal();
     if (!getModel(config.model)) return ollama.reachable ? `Ollama doesn't have ${parseLocalModelId(config.model)?.rawId ?? 'that model'} anymore. Pick another model on the Model page in ${PANEL}.` : `Ollama isn't running. Open it, then ask me again!`;
     await measureLocal(config.model);
@@ -1096,7 +1141,7 @@ async function readyAgent() {
   if (agentStale && agent) { agent = null; }
   agentStale = false;
   let cc;
-  try { cc = await claudeCodeRoute(); } catch (e) { return aloud(problem('reply', e, { who: PROVIDER_LABELS[config.provider] })); }
+  try { cc = await claudeCodeRoute(); } catch (e) { return aloud(problem('reply', e, { who: labelOf() })); }
   if (agent && agentRoute !== (cc ? 'claude-code' : 'api')) agent = null; // signed in or out of Claude meanwhile
   if (!agent) {
     try { const c = await credsFor(); credsBaseUrl = c.baseUrl; credsAccountId = c.accountId; } catch { credsBaseUrl = undefined; credsAccountId = undefined; }
@@ -1320,7 +1365,7 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
     if (controller.signal.aborted) voice?.abort(); else { spoken?.flush(); voice?.end(); }
     if (controller.signal.aborted && quiet) ui({ kind: 'agent', e: { type: 'done' } });
     else {
-      const msg = stalled ? stallMessage() : controller.signal.aborted ? 'Okay, stopping.' : aloud(problem('reply', err, { who: PROVIDER_LABELS[config.provider] }));
+      const msg = stalled ? stallMessage() : controller.signal.aborted ? 'Okay, stopping.' : aloud(problem('reply', err, { who: labelOf() }));
       console.error('prompt failed', err);
       ui({ kind: 'agent', e: { type: 'error', message: msg, speech: voice?.id ?? null } });
     }
@@ -1339,7 +1384,7 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
   }
 }
 const STALL_MS = 120_000;
-const stallMessage = () => `${PROVIDER_LABELS[config.provider] ?? 'The AI'} stopped answering for two minutes, so I gave up on that one. Ask me again?`;
+const stallMessage = () => `${labelOf() ?? 'The AI'} stopped answering for two minutes, so I gave up on that one. Ask me again?`;
 
 // ---------- asking the user (input bubble in the overlay) ----------
 let askSeq = 0;
@@ -1442,10 +1487,11 @@ async function apiKeyLogin(id, given) {
 // Removes a provider from AI Assistant: its sign-in and every kind of key it has saved (or Ollama's connection).
 async function signOut(provider) {
   if (!MENU_PROVIDERS.includes(provider)) return;
-  const label = PROVIDER_LABELS[provider] ?? provider;
+  const label = provider === CUSTOM_ID ? (config.custom?.name || PROVIDER_LABELS[provider]) : PROVIDER_LABELS[provider] ?? provider;
   if (loggingIn === provider) cancelLogin();
   try {
     if (provider === 'local') await auth.clearCredentials(OLLAMA_KEY);
+    else if (provider === CUSTOM_ID) { await auth.clearCredentials(CUSTOM_KEY); config.custom = null; saveConfig(); }
     else {
       // Claude Code here is AI Assistant's own copy, so this signs only AI Assistant out.
       if (provider === 'anthropic' && await auth.hasClaudeCodeLogin()) await signOutOfClaudeCode(auth);
@@ -1460,7 +1506,7 @@ async function signOut(provider) {
   }
   await refreshAuth();
   if (provider === 'gemini') await syncGeminiVoiceKey();
-  if (config.provider === provider || !signedIn.get(config.provider)) { config.provider = null; config.model = null; ensureModel(); saveConfig(); }
+  if (config.provider === provider || (provider === CUSTOM_ID && isCustomModel(config.model)) || !signedIn.get(config.provider)) { config.provider = null; config.model = null; ensureModel(); saveConfig(); }
   agent = null; menu();
   say(`${label} is removed.`, 'happy'); panelNote(`${label} is removed.`);
 }
@@ -1870,7 +1916,7 @@ async function saveDiagnostics() {
 // The right-click menu: the basics. Everything else (memory, model, settings, updates) is in the panel.
 function menu() {
   const current = getModel(config.model);
-  const status = busy ? `${lookName()} is working…` : loggingIn ? `Signing in to ${PROVIDER_LABELS[loggingIn]}…` : current ? `${current.name} · ${PROVIDER_LABELS[config.provider] ?? config.provider}` : 'Not signed in';
+  const status = busy ? `${lookName()} is working…` : loggingIn ? `Signing in to ${PROVIDER_LABELS[loggingIn]}…` : current ? `${current.name} · ${labelOf()}` : 'Not signed in';
   const items = [
     { id: 'status', label: status, enabled: false },
     { sep: true },
@@ -1912,10 +1958,20 @@ function panelState() {
     busy, canNew: !busy && !!session?.messages.length,
     // The type-to-ask shortcut, for the Ask button's tooltip (none on Wayland).
     askKeys: HOTKEYS_OK ? writeSymbols() : null,
-    model: current ? { provider: config.provider, id: config.model, name: current.name, providerLabel: PROVIDER_LABELS[config.provider] ?? config.provider } : null,
+    model: current ? { provider: config.provider === 'local' && isCustomModel(config.model) ? CUSTOM_ID : config.provider, id: config.model, name: current.name, providerLabel: labelOf() } : null,
     providers: MENU_PROVIDERS.map((p) => {
       const meta = AUTH_PROVIDERS.find((x) => x.value === p);
-      const on = !!signedIn.get(p);
+      // 'local' is Ollama alone here (the custom provider has its own entry): on only with Ollama's own credential.
+      const on = p === 'local' ? storedKeys.has(OLLAMA_KEY) : !!signedIn.get(p);
+      const list = p === 'local' ? runnable(p).filter((mm) => !isCustomModel(mm.id)) : runnable(p);
+      if (p === CUSTOM_ID) {
+        const c = config.custom, info = c ? customModelInfo(c) : null;
+        return {
+          id: p, label: PROVIDER_LABELS[p], on, method: 'custom', key: false, signedIn: false, keySaved: false, kinds: null,
+          models: on && info ? [{ id: info.id, name: info.name }] : [],
+          custom: c ? { name: c.name, address: c.baseUrl, model: c.model } : null, // never the key
+        };
+      }
       return {
         id: p, label: PROVIDER_LABELS[p] ?? p, on,
         method: p === 'local' ? 'local' : OAUTH[p] && (!meta || meta.methods.includes('oauth')) ? 'oauth' : meta?.methods?.includes('apikey') ? 'key' : null,
@@ -1924,8 +1980,8 @@ function panelState() {
         signedIn: !!oauthOn.get(p), keySaved: !!meta && apiKeyStorageKeys(p).some((k) => storedKeys.has(k)),
         // Kimi and Xiaomi: which kind of key is being added (plan or pay-per-token).
         kinds: meta && keyKinds(meta).length > 1 ? keyKinds(meta).map(([id, label, billing]) => ({ id, label, billing })) : null,
-        models: on ? runnable(p).slice(0, 24).map((mm) => ({ id: mm.id, name: mm.name })) : [],
-        ...(p === 'local' && on ? { note: !ollama.reachable ? "Ollama isn't running." : runnable(p).length ? '' : "None of Ollama's models can see images. Get one with: ollama pull qwen3.5:4b" } : {}),
+        models: on ? list.slice(0, 24).map((mm) => ({ id: mm.id, name: mm.name })) : [],
+        ...(p === 'local' && on ? { note: !ollama.reachable ? "Ollama isn't running." : list.length ? '' : "None of Ollama's models can see images. Get one with: ollama pull qwen3.5:4b" } : {}),
       };
     }),
     loggingIn,
@@ -2114,9 +2170,10 @@ async function onMenu(id, via) {
   }
   else if (id.startsWith('model:')) {
     const [, p, ...rest] = id.split(':');
-    config.provider = p; config.model = rest.join(':'); agent = null; saveConfig(); menu();
+    // The custom provider is listed on its own but runs as a local model.
+    config.provider = p === CUSTOM_ID ? 'local' : p; config.model = rest.join(':'); agent = null; saveConfig(); menu();
     say(`Switched to ${getModel(config.model)?.name ?? config.model}.`, 'happy');
-    if (p === 'local') measureLocal(config.model).catch(() => {});
+    if (config.provider === 'local') measureLocal(config.model).catch(() => {});
   } else if (id.startsWith('login:')) oauthLogin(id.slice(6));
   else if (id.startsWith('key:')) apiKeyLogin(id.slice(4));
   else if (id.startsWith('signout:')) signOut(id.slice(8));
@@ -2416,7 +2473,9 @@ function obState() {
     step: config.onboardStep ?? 0,
     oauth: signInCards(Object.keys(OAUTH), (id) => oauthOn.get(id), PROVIDER_LABELS),
     apikey: keyCards(AUTH_PROVIDERS, (id) => keyOn.get(id)),
-    connected: current && signedIn.get(config.provider) ? { provider: PROVIDER_LABELS[config.provider] ?? config.provider, model: current.name } : null,
+    // The user's own provider: what the form shows when it's already set up (never the key).
+    custom: { on: storedKeys.has(CUSTOM_KEY), name: config.custom?.name ?? '', address: config.custom?.baseUrl ?? '', model: config.custom?.model ?? '' },
+    connected: current && signedIn.get(config.provider) ? { provider: labelOf(), model: current.name } : null,
     keys: keys(),
     actions: config.allowActions,
     login: login.supported ? login.on : null,
@@ -2476,6 +2535,7 @@ async function onGuide(m) {
   else if (m.type === 'ob_login' && OAUTH[m.provider]) oauthLogin(m.provider, typeof m.id === 'string' ? m.id.slice(0, 40) : undefined);
   else if (m.type === 'ob_login_cancel') cancelLogin(typeof m.id === 'string' ? m.id : undefined);
   else if (m.type === 'ob_apikey') apiKeyLogin(m.provider, String(m.key ?? '')).catch((e) => { const p = problem('key', e, { store: KEY_STORE }); ob({ kind: 'login', provider: m.provider, phase: 'error', error: p.text, ...linked(p) }); });
+  else if (m.type === 'ob_custom') customLogin(m).then((r) => { if (!r.ok) ob({ kind: 'login', provider: CUSTOM_ID, phase: 'error', error: r.why }); }).catch((e) => { const p = problem('key', e, { store: KEY_STORE }); ob({ kind: 'login', provider: CUSTOM_ID, phase: 'error', error: p.text, ...linked(p) }); });
   else if (m.type === 'ob_files') ob({ kind: 'files', status: await filesStatus(!!m.request) });
   else if (m.type === 'set_actions') { config.allowActions = !!m.on; agents.setAllow(config.allowActions); saveConfig(); menu(); obState(); }
   else if (m.type === 'set_login') setLogin(!!m.on);
@@ -2530,7 +2590,8 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     if (storageKeyProvider(id) !== m.provider) return;
     apiKeyLogin(id, m.key.slice(0, 1000)).then(() => panelNote(signedIn.get(m.provider) ? `${label} is connected.` : `That ${label} key didn't work.`, !signedIn.get(m.provider)))
       .catch((e) => { const p = problem('key', e, { store: KEY_STORE }); panelNote(p.text, true, p); });
-  } else if ((m.type === 'panel_fishkey' || m.type === 'panel_geminikey') && typeof m.key === 'string') voiceKeyLogin({ provider: m.type === 'panel_geminikey' ? 'gemini' : 'fish', given: m.key.slice(0, 1000), note: panelNote }).catch((e) => console.error('voice key', e));
+  } else if (m.type === 'panel_custom') customLogin(m).then((r) => panelNote(r.ok ? `${r.name} is connected.` : r.why, !r.ok)).catch((e) => { const p = problem('key', e, { store: KEY_STORE }); panelNote(p.text, true, p); });
+  else if ((m.type === 'panel_fishkey' || m.type === 'panel_geminikey') && typeof m.key === 'string') voiceKeyLogin({ provider: m.type === 'panel_geminikey' ? 'gemini' : 'fish', given: m.key.slice(0, 1000), note: panelNote }).catch((e) => console.error('voice key', e));
   else if (m.type === 'answer') { pending.get(m.id)?.(m.text ?? null); pending.delete(m.id); }
   else if (m.type === 'ui_ready') {
     retired.then((notes) => { if (notes.length) { retired = Promise.resolve([]); say(`${notes.join(' ')} Do it on the Model page in ${PANEL}.`, 'concerned'); } });

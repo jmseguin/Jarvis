@@ -459,6 +459,34 @@
       row);
   }
 
+  // The user's own OpenAI-compatible provider: four fields in place, under its row. The key is never sent back to the
+  // page, so a saved setup shows its name, address and model, and an empty key box keeps the saved key.
+  function customForm(p) {
+    const c = p.custom ?? {};
+    const field = (id, label, o = {}) => {
+      const input = el('input', { type: o.password ? 'password' : 'text', id: `custom-${id}`, autocomplete: 'off', spellcheck: false, placeholder: o.ph ?? '', 'aria-label': label, maxLength: o.max ?? 500, value: o.value ?? '' });
+      return { input, row: el('div', { className: 'customfield' }, el('label', { htmlFor: `custom-${id}`, textContent: label }), el('span', { className: 'px field' }, input)) };
+    };
+    const name = field('name', 'Name (optional)', { ph: 'My AI', max: 40, value: c.name });
+    const address = field('address', 'Server address', { ph: 'https://your-ai-server.example.com/v1', value: c.address });
+    const key = field('key', "API key (leave empty if your server doesn't need one)", { password: true, ph: p.on ? 'Leave empty to keep the saved key' : 'Paste API key', max: 1000 });
+    const model = field('model', 'Model name', { ph: "The model's name on your server", max: 200, value: c.model });
+    const save = () => {
+      if (!address.input.value.trim()) return address.input.focus();
+      if (!model.input.value.trim()) return model.input.focus();
+      send({ type: 'panel_custom', name: name.input.value.trim(), address: address.input.value.trim(), key: key.input.value.trim(), model: model.input.value.trim() });
+      key.input.value = '';
+      closeKey();
+    };
+    for (const f of [name, address, key, model]) f.input.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); else if (e.key === 'Escape') { e.stopPropagation(); closeKey(); } });
+    return el('div', { className: 'customform', hidden: ui.key !== p.id, 'data-anim': `key-${p.id}` },
+      name.row, address.row, key.row, model.row,
+      el('div', { className: 'keyform' }, btn('Connect', save, { k: `save:${p.id}` })),
+      el('p', { className: 'empty note', textContent: "I send one short test message to check it. After that, everything you say goes to this server, under its owner's privacy policy. It works with text only, so no screenshots are sent." }));
+  }
+  const customSetup = (p) => link(ui.key === p.id ? 'Cancel' : 'Set up', () => toggleKey(p.id), { k: `addkey:${p.id}`, aria: `Set up ${p.label}` });
+  const customChange = (p) => link(ui.key === p.id ? 'Cancel' : 'Change', () => toggleKey(p.id), { k: `addkey:${p.id}`, aria: `Change ${p.label}` });
+
   const signIn = (p) => link('Sign in', () => act(`login:${p.id}`), { k: `login:${p.id}`, aria: `Sign in to ${p.label}`, disabled: !!state.loggingIn });
   const connect = (p) => link('Connect', () => act('local:connect'), { k: 'local:connect', aria: `Connect ${p.label}` });
   const addKey = (p) => link(ui.key === p.id ? 'Cancel' : 'Add key', () => toggleKey(p.id), { k: `addkey:${p.id}`, aria: `Add ${p.label} API key` });
@@ -479,17 +507,19 @@
     const { box, nav } = paged('accounts', accounts, (p) => el('li', { className: `acct${ui.key === p.id ? ' open' : ''}` },
       el('div', { className: 'setting' },
         // Connected: a lit dot by the name, its word in a tooltip (and for screen readers).
-        el('span', { className: 'acct-name' }, p.label, p.on ? el('span', { className: 'led on', role: 'img', 'aria-label': p.method === 'local' ? 'Connected' : 'Signed in', 'data-tip': p.method === 'local' ? 'Connected' : 'Signed in' }) : null),
+        el('span', { className: 'acct-name' }, p.label, p.on ? el('span', { className: 'led on', role: 'img', 'aria-label': p.method === 'local' || p.method === 'custom' ? 'Connected' : 'Signed in', 'data-tip': p.method === 'local' || p.method === 'custom' ? 'Connected' : 'Signed in' }) : null),
         p.on ? el('span', { className: 'row-btns' },
-          p.key ? changeKey(p) : null,
+          p.method === 'custom' ? customChange(p) : p.key ? changeKey(p) : null,
           ui.key === p.id ? null : armed(p.signedIn && !p.keySaved ? 'Sign out' : 'Remove', 'Confirm', `signout:${p.id}`, `signout:${p.id}`, `Remove ${p.label} from AI Assistant`))
           : state.loggingIn === p.id ? el('span', { className: 'waiting', textContent: 'Signing in…' })
           : p.method === 'local' ? connect(p)
+          : p.method === 'custom' ? customSetup(p)
           : p.method === 'oauth' ? (p.key ? el('span', { className: 'links' }, signIn(p), addKey(p)) : signIn(p))
           : addKey(p)),
       // Ollama: why its models aren't in the Model menu (not running, or none can see images).
       p.note ? el('p', { className: 'empty note', textContent: p.note }) : null,
-      p.method === 'key' || p.key ? keyForm(p.id, p.label, (key, kind) => send({ type: 'panel_key', provider: p.id, kind, key }), p.kinds) : null),
+      p.method === 'key' || p.key ? keyForm(p.id, p.label, (key, kind) => send({ type: 'panel_key', provider: p.id, kind, key }), p.kinds) : null,
+      p.method === 'custom' ? customForm(p) : null),
     { label: 'Accounts', pin: accounts.findIndex((p) => p.id === ui.key) });
     return [
       group('Model', 'Which AI answers you.', null,
@@ -1068,6 +1098,7 @@
           { id: 'kimi-code', label: 'Kimi Code', billing: 'Uses your Kimi Code plan. Create the key in the Kimi Code Console.' },
           { id: 'moonshot', label: 'Moonshot', billing: 'Pay-per-token from platform.moonshot.ai.' }] },
         { id: 'local', label: 'Ollama (on this computer)', on: false, method: 'local', models: [] },
+        { id: 'custom', label: 'Custom OpenAI Provider', on: false, method: 'custom', models: [], custom: null },
         ...['xAI', 'GLM (Z.ai)', 'MiniMax', 'Xiaomi', 'DeepSeek', 'Sakana', 'OpenRouter', 'Hugging Face'].map((label) => ({ id: label.toLowerCase().replace(/\W/g, ''), label, on: false, method: 'key', models: [] })),
       ],
       loggingIn: null,

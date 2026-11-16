@@ -386,6 +386,16 @@
         b.onclick = () => ai.pickKey(p);
         return b;
       }));
+      // Your own hosted AI (any OpenAI-compatible server): a card like the others, with its own form.
+      const cs = state?.custom ?? {}, cbusy = ai.keyBusy === 'custom';
+      const cb = el('button', { className: `px prov${cs.on ? ' on' : ''}${cbusy ? ' busy' : ''}`, type: 'button', title: cs.on ? 'Custom OpenAI Provider: connected' : '' },
+        el('span', { textContent: 'Custom OpenAI Provider' }), led(cs.on ? 'on' : cbusy ? 'busy' : ''));
+      cb.setAttribute('aria-label', `Custom OpenAI Provider${cbusy ? ', checking' : cs.on ? ', connected' : ''}`);
+      cb.setAttribute('aria-pressed', String(ai.key === 'custom'));
+      cb.onclick = () => ai.pickCustom();
+      $('key-providers').append(cb);
+      $('custom-form').hidden = ai.mode !== 'key' || ai.key !== 'custom';
+      $('custom-save').disabled = cbusy;
       const k = (state?.apikey ?? []).find((p) => p.id === ai.key);
       $('key-form').hidden = ai.mode !== 'key' || !k;
       if (k) {
@@ -431,6 +441,15 @@
     pickKey(p) {
       ai.key = p.id; $('login-error').hidden = true; ai.render();
       $('key-input').focus();
+    },
+    pickCustom() {
+      ai.key = 'custom'; $('login-error').hidden = true;
+      // Already set up: show what was saved (the key itself is never sent back; empty keeps it).
+      const c = state?.custom ?? {};
+      for (const [id, v] of [['custom-name', c.name], ['custom-address', c.address], ['custom-model', c.model]]) if (!$(id).value) $(id).value = v ?? '';
+      $('custom-key').placeholder = c.on ? 'Leave empty to keep the saved key' : 'Paste API key';
+      ai.render();
+      ($('custom-address').value ? $('custom-key') : $('custom-address')).focus();
     },
     onLogin(msg) {
       // A key save has no id; a sign-in's messages carry the one this guide gave it. Older attempts are ignored.
@@ -482,6 +501,16 @@
     poseFn = POSE.think();
     send({ type: 'ob_apikey', provider: ai.key, key });
     $('key-input').value = '';
+  });
+  $('custom-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const v = (id) => $(id).value.trim();
+    if (!v('custom-address')) return $('custom-address').focus();
+    if (!v('custom-model')) return $('custom-model').focus();
+    ai.keyBusy = 'custom'; ai.render();
+    poseFn = POSE.think();
+    send({ type: 'ob_custom', name: v('custom-name'), address: v('custom-address'), key: v('custom-key'), model: v('custom-model') });
+    $('custom-key').value = '';
   });
 
   // ---------------------------------------------------------------- step 3: how replies come
@@ -1334,6 +1363,7 @@
       apikey: [['anthropic', 'Anthropic'], ['openai', 'OpenAI'], ['gemini', 'Gemini'], ['xai', 'xAI'], ['kimi-code', 'Kimi Code'], ['moonshot', 'Moonshot'], ['glm', 'Z.AI'], ['minimax', 'MiniMax'],
         ['xiaomi', 'MiMo Plan'], ['xiaomi-credits', 'MiMo Credits'], ['deepseek', 'DeepSeek'], ['sakana', 'Sakana'], ['openrouter', 'OpenRouter'], ['huggingface', 'Hugging Face']]
         .map(([id, name]) => ({ id, name, connected: id === 'openrouter' && q.get('keys') === '1', link: id === 'xiaomi' ? null : `https://example.com/${id}` })),
+      custom: { on: false, name: '', address: '', model: '' },
     };
     let filesAsked = st.filesAsked;
     const logins = new Map(); // sign-in id → its timers, so Cancel stops the simulated one
@@ -1374,6 +1404,13 @@
           if (m.key === 'bad') return window.__onboard?.({ kind: 'login', provider: m.provider, phase: 'error', error: 'That key was refused.' });
           st.apikey.find((p) => p.id === m.provider).connected = true; st.connected = { provider: m.provider, model: 'A model' };
           window.__onboard?.({ kind: 'login', provider: m.provider, phase: 'done' }); window.__onboard?.({ ...st });
+        }, 900);
+      } else if (m.type === 'ob_custom') {
+        // An address with 'bad' in it is refused, like a wrong key or server.
+        setTimeout(() => {
+          if (/bad/i.test(m.address)) return window.__onboard?.({ kind: 'login', provider: 'custom', phase: 'error', error: 'The server refused the API key. Check the key and try again.' });
+          st.custom = { on: true, name: m.name || 'My AI', address: m.address, model: m.model }; st.connected = { provider: st.custom.name, model: m.model };
+          window.__onboard?.({ kind: 'login', provider: 'custom', phase: 'done' }); window.__onboard?.({ ...st });
         }, 900);
       } else if (m.type === 'ob_replies') { st.replies = m.mode; reply({ ...st }); reply({ kind: 'say', text: m.mode === 'voice' ? 'Voice is on!' : 'Text only from now on.' }, 50); }
       else if (m.type === 'ob_fishkey' || m.type === 'ob_geminikey') {

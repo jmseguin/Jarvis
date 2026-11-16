@@ -62,6 +62,28 @@
           <button class="px btn primary" type="submit" id="key-save">Save</button>
         </div>
       </form>
+      <form class="inline" id="custom-form" hidden>
+        <div class="custom-stack">
+          <div>
+            <label for="custom-name">Name (optional)</label>
+            <span class="px field"><input id="custom-name" placeholder="My AI" autocomplete="off" spellcheck="false" maxlength="40"></span>
+          </div>
+          <div>
+            <label for="custom-address">Server address</label>
+            <span class="px field"><input id="custom-address" placeholder="https://your-ai-server.example.com/v1" autocomplete="off" spellcheck="false" maxlength="500"></span>
+          </div>
+          <div>
+            <label for="custom-key">API key (leave empty if your server doesn't need one)</label>
+            <span class="px field"><input id="custom-key" type="password" placeholder="Paste API key" autocomplete="off" spellcheck="false" maxlength="1000"></span>
+          </div>
+          <div>
+            <label for="custom-model">Model name</label>
+            <span class="px field"><input id="custom-model" placeholder="The model's name on your server" autocomplete="off" spellcheck="false" maxlength="200"></span>
+          </div>
+          <div class="field-row"><button class="px btn primary" type="submit" id="custom-save">Connect</button></div>
+        </div>
+        <p class="note">I send one short test message to check it. After that, everything you say goes to this server, under its owner's privacy policy. It works with text only, so no screenshots are sent.</p>
+      </form>
       <button class="link" type="button" id="key-toggle">Use an API key instead</button>
       <p class="error" id="login-error" role="alert" hidden></p>
       <p class="note">Your messages, and screenshots when you ask about the screen, go to the AI provider you pick, under its privacy policy.</p>

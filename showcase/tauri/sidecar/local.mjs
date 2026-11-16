@@ -25,7 +25,8 @@ export async function connectLocal(auth, { save = false, windows, probe = probeE
   const p = await probe(OLLAMA, { timeoutMs: 1500 });
   if (!p.reachable) return { ok: false, reason: p.reason ?? 'not running', models: [], all: 0 };
   const models = localModels([p], windows);
-  clearRuntimeModels((m) => m.provider === 'local');
+  // Only Ollama's own models: a custom provider (custom.mjs) is another local endpoint with models of its own.
+  clearRuntimeModels((m) => m.provider === 'local' && m.authStorageKeys?.includes(OLLAMA_KEY));
   registerRuntimeModels(models);
   if (save) await auth.setLocalEndpoint(OLLAMA.id, OLLAMA.baseUrl);
   return { ok: true, models, all: p.models.length };

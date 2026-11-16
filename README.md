@@ -42,6 +42,7 @@ AI Assistant connects to [VoiceStudio](http://127.0.0.1:3900) over its local str
 ## Model & Runtime Configuration
 
 - **Local LLM**: Configured for Ollama (e.g. `local/ollama/gemma4:latest`, `131072` context) or cloud providers (Anthropic/Claude Code, OpenAI/ChatGPT, Gemini).
+- **Custom OpenAI Provider**: on the "Give me a brain" page (Use an API key instead) and in Settings -> Model, point the assistant at your own hosted OpenAI-compatible server. Enter a name, the server address (https://, or http:// for a server on this computer), an API key (optional) and the model name. One short test message is sent before anything is saved, and a wrong address, key or model name is reported in plain words. It runs as a text-only model with a 32k context window (no screenshots are sent). The address and model name are kept in the app settings; the key is stored in `~/.gg/auth.json` like the other AI keys. Code: `showcase/tauri/sidecar/custom.mjs`.
 - **Live State Context**: On every turn, `livePrompt()` in `showcase/tauri/sidecar/sidekick.mjs` injects `<live-state>` including currently enabled MCP servers and their tool names so the model knows which tools are active.
 
 ## Tools & MCP (`./tools`)
