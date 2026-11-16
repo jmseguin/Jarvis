@@ -20,10 +20,18 @@ fn find_node() -> Option<PathBuf> {
     dirs.into_iter().map(|d| d.join(exe)).find(|p| p.is_file())
 }
 
+/// Windows hands out "verbatim" paths (`\\?\C:\...`) for the app's resources. Newer Node versions can't resolve those
+/// (realpath fails with EISDIR on `C:`), so the sidecar would never start: give it the plain drive path. Network
+/// paths (`\\?\UNC\...`) and everything that isn't verbatim are left alone.
+fn plain_path(p: PathBuf) -> PathBuf {
+    let stripped = p.to_str().and_then(|s| s.strip_prefix(r"\\?\")).filter(|rest| !rest.starts_with("UNC\\")).map(PathBuf::from);
+    stripped.unwrap_or(p)
+}
+
 fn sidecar_script(app: &AppHandle) -> Option<PathBuf> {
     let bundled = app.path().resource_dir().map(|d| d.join("sidecar").join("sidekick.mjs"));
     match bundled {
-        Ok(p) if p.is_file() => Some(p),
+        Ok(p) if p.is_file() => Some(plain_path(p)),
         #[cfg(debug_assertions)]
         _ => Some(PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../sidecar/sidekick.mjs"))),
         #[cfg(not(debug_assertions))]
