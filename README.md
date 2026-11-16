@@ -2,6 +2,10 @@
 
 A standalone, local-first floating desktop AI companion built with Tauri 2, a Node.js agent sidecar, macOS native voice/hands helpers, and extensible MCP tools.
 
+### Credits & Origin
+
+This project builds on **Roamies** by **Ken Kai**, whose visual design, companion graphics, and fantastic starting architecture made this fork possible. Watch Ken Kai's original walkthrough video here: [https://www.youtube.com/watch?v=bl9646MVDA4](https://www.youtube.com/watch?v=bl9646MVDA4).
+
 ## Project Structure
 
 - `showcase/tauri/src-tauri/` — Tauri 2 Rust shell (`productName: "AIAssistant"`, bundle `AIAssistant.app`), tray menu, and macOS Swift helpers:
