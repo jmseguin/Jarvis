@@ -262,6 +262,9 @@ html, body { height: 100%; background: transparent; }
 .setting > span { min-width: 0; font-size: var(--t-body); line-height: 1.35; color: var(--ink); }
 .setting > span small { display: block; font-size: var(--t-small); line-height: 1.35; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .setting .link { white-space: nowrap; }
+/* A label over a wide control (the audio device dropdowns), so a long device name can't push the label away. */
+.setting.stack { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.setting.stack .field.select { display: flex; width: 100%; min-width: 0; }
 .picks { display: flex; flex-wrap: wrap; gap: 6px; }
 .picks .chord { padding: 4px; }
 .picks .cap { height: 26px; min-width: 0; padding: 0 9px 2px; font-size: var(--t-small); }

@@ -714,16 +714,16 @@
         const hasSavedIn = !curIn || inputs.some((d) => d.uid === curIn);
         const hasSavedOut = !curOut || outputs.some((d) => d.uid === curOut);
         const devLabel = (d) => `${d.name}${d.builtin ? ' (Built-in)' : ''}${d.default ? ` · ${sys} default` : ''}`;
-        return group('Audio devices', 'Lock AI Assistant to a specific mic and speaker so plugging in headphones or a projector does not switch them.',
-          link('Refresh', () => act('refreshdevices'), { k: 'refreshdevices', aria: 'Refresh audio devices' }),
-          el('div', { className: 'setting' },
+        return group('Audio devices', 'Always use this mic and speaker.', null,
+          el('div', { className: 'links' }, link('Refresh', () => act('refreshdevices'), { k: 'refreshdevices', aria: 'Refresh audio devices' })),
+          el('div', { className: 'setting stack' },
             el('span', {}, 'Microphone', el('small', { textContent: curIn ? 'Locked to selected input device' : `Follows the ${sys} default input` })),
             el('span', { className: 'px field select' },
               el('select', { 'aria-label': 'Microphone override', 'data-k': 'inputdev', on: { change: (e) => act(`inputdev:${e.target.value}`) } },
                 el('option', { value: '', textContent: 'System default', selected: curIn === '' }),
                 !hasSavedIn ? el('option', { value: curIn, textContent: `Saved device (disconnected)`, selected: true }) : null,
                 inputs.map((d) => el('option', { value: d.uid, textContent: devLabel(d), selected: d.uid === curIn }))))),
-          el('div', { className: 'setting' },
+          el('div', { className: 'setting stack' },
             el('span', {}, 'Speaker', el('small', { textContent: curOut ? 'Locked to selected output device' : `Follows the ${sys} default output` })),
             el('span', { className: 'px field select' },
               el('select', { 'aria-label': 'Speaker override', 'data-k': 'outputdev', on: { change: (e) => act(`outputdev:${e.target.value}`) } },
@@ -1205,6 +1205,19 @@
       engine: { ok: false, reason: 'engine', message: "VoiceStudio's voice engine isn't ready (CosyVoice): not installed. Pick or install an engine in VoiceStudio, then press Check again." },
     };
     if (q.has('studio')) Object.assign(s, { tts: 'voicestudio', studio: STUDIO[q.get('studio')] ?? STUDIO.on });
+    // ?audio=ok|gone|default: the Audio devices section with Windows wording. ok: the saved devices are plugged in; gone: they
+    // aren't (a Bluetooth headset switched off); default: nothing saved.
+    if (q.has('audio')) {
+      const a = q.get('audio');
+      const bose = [{ uid: 'wasapi:{bose-in}', name: 'Headset (Bose QC35 II)', builtin: false, default: false }, { uid: 'wasapi:{bose-out}', name: 'Headphones (Bose QC35 II)', builtin: false, default: false }];
+      const inputs = [{ uid: 'wasapi:{cable-out}', name: 'CABLE Output (VB-Audio Virtual Cable)', builtin: false, default: false }, { uid: 'wasapi:{icontact}', name: 'Microphone (iContact Camera Pro)', builtin: false, default: false }, { uid: 'wasapi:{array}', name: 'Microphone Array (2- Realtek(R) Audio)', builtin: false, default: true }];
+      const outputs = [{ uid: 'wasapi:{speakers}', name: 'Speakers (2- Realtek(R) Audio)', builtin: false, default: true }, { uid: 'wasapi:{acer}', name: 'Acer XR382CQK (5- HD Audio Driver for Display Audio)', builtin: false, default: false }];
+      Object.assign(s.voice, {
+        mac: false, audioPicker: true,
+        audioDevices: a === 'ok' ? { inputs: [bose[0], ...inputs], outputs: [bose[1], ...outputs] } : { inputs, outputs },
+        inputDevice: a === 'default' ? '' : 'wasapi:{bose-in}', outputDevice: a === 'default' ? '' : 'wasapi:{bose-out}',
+      });
+    }
     if (q.has('uptodate')) s.update.result = { ok: true, at: Date.now() + 60e3 };
     // ?v=0.1.36&from=0.1.35: What's new as it looks just after updating from one version to the other.
     if (q.get('v')) s.version = q.get('v');
