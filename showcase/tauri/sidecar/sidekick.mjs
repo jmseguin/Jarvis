@@ -274,6 +274,8 @@ const sendKeys = () => send({ type: 'keybinds', ...keys(), write: HOTKEYS_OK ? k
 const talkHow = () => (HOTKEYS_OK ? `Hold ${talkWords().replace('+', ' and ')}` : 'Press your talk shortcut');
 const talkHowLong = () => (HOTKEYS_OK ? `${talkHow()} while you talk` : 'Press your talk shortcut, talk, then press it again (or just pause)');
 const MAC = process.platform === 'darwin';
+// The mic and speaker pickers: the macOS and Windows voice helpers both answer list_devices / input_device / output_device / speak_pcm.
+const AUDIO_PICKER = MAC || process.platform === 'win32';
 // What the model is told about the computer. "darwin" alone left it using PC habits: Cmd+End (does nothing in Mac
 // text, so lines landed at the top) and GNU flags like cat -A that macOS doesn't have. Read once; it never changes mid-run.
 const macVersion = (() => { if (!MAC) return ''; try { return execFileSync('sw_vers', ['-productVersion'], { encoding: 'utf8', timeout: 2000 }).trim(); } catch { return ''; } })();
@@ -2015,7 +2017,7 @@ function panelState() {
     geminiModel: config.geminiModel, geminiModels: GEMINI_CHOICES,
     studio: tts().local ? studioState() : null,
     voice: VOICE_OK ? {
-      on: !!config.voice, keys: HOTKEYS_OK ? talkSymbols() : null, ready: voiceReady(), mac: MAC, mute: config.muteWhileTalking !== false, audioHoldSeconds: audioHoldSeconds(), wakeMic: config.wakeMic ?? 'auto', inputDevice: config.inputDevice || '', outputDevice: config.outputDevice || '', audioDevices, autoListen: !!config.autoListen, snoozeListen: !!config.snoozeListen, wakeWord: !!config.wakeWord, wakeName: wakeName(config),
+      on: !!config.voice, keys: HOTKEYS_OK ? talkSymbols() : null, ready: voiceReady(), mac: MAC, audioPicker: AUDIO_PICKER, mute: config.muteWhileTalking !== false, audioHoldSeconds: audioHoldSeconds(), wakeMic: config.wakeMic ?? 'auto', inputDevice: config.inputDevice || '', outputDevice: config.outputDevice || '', audioDevices, autoListen: !!config.autoListen, snoozeListen: !!config.snoozeListen, wakeWord: !!config.wakeWord, wakeName: wakeName(config),
       download: NEEDS_MODEL && config.voice && !voiceReady() ? { status: voiceModel.status, pct: voiceModel.total ? Math.floor((voiceModel.done / voiceModel.total) * 100) : 0, size: sizeLabel() } : null,
     } : null,
     sound: !!config.sound, actions: !!config.allowActions, followUpQuestions: config.followUpQuestions !== false,
@@ -2336,15 +2338,15 @@ async function onMenu(id, via) {
     const mode = id.slice(8);
     if (['auto', 'builtin', 'bluetooth'].includes(mode)) { config.wakeMic = mode; saveConfig(); voiceConfig(); panel(); }
   }
-  else if (id.startsWith('inputdev:') && MAC) {
+  else if (id.startsWith('inputdev:') && AUDIO_PICKER) {
     config.inputDevice = id.slice(9);
     saveConfig(); voiceConfig(); panel();
   }
-  else if (id.startsWith('outputdev:') && MAC) {
+  else if (id.startsWith('outputdev:') && AUDIO_PICKER) {
     config.outputDevice = id.slice(10);
     saveConfig(); voiceConfig(); ui({ kind: 'output_override', on: !!config.outputDevice }); panel();
   }
-  else if (id === 'refreshdevices' && MAC) {
+  else if (id === 'refreshdevices' && AUDIO_PICKER) {
     send({ type: 'list_audio_devices' });
   }
   else if (id === 'autolisten') { config.autoListen = !config.autoListen; saveConfig(); menu(); }
@@ -2598,7 +2600,7 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   let m;
   try { m = JSON.parse(line); } catch { return; }
   if (m.type === 'menu') onMenu(m.id, m.via).catch((e) => console.error('menu', e));
-  else if (m.type === 'panel_open') { panelOpen = true; panelAt = Date.now(); logLine('panel_open', {}); if (MAC) send({ type: 'list_audio_devices' }); Promise.all([refreshAuth(), signedIn.get('local') && syncLocal(), tts().local && speech.checkLocal()]).catch(() => {}).finally(() => panel()); }
+  else if (m.type === 'panel_open') { panelOpen = true; panelAt = Date.now(); logLine('panel_open', {}); if (AUDIO_PICKER) send({ type: 'list_audio_devices' }); Promise.all([refreshAuth(), signedIn.get('local') && syncLocal(), tts().local && speech.checkLocal()]).catch(() => {}).finally(() => panel()); }
   else if (m.type === 'audio_devices') { audioDevices = { inputs: Array.isArray(m.inputs) ? m.inputs : [], outputs: Array.isArray(m.outputs) ? m.outputs : [] }; if (panelOpen) panel(); }
   else if (m.type === 'diagnostics') { shellInfo?.(m); shellInfo = null; }
   else if (m.type === 'panel_closed') { panelOpen = false; logLine('panel_closed', { why: String(m.why ?? ''), ms: Date.now() - panelAt }); }
@@ -2615,7 +2617,7 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   else if (m.type === 'ui_ready') {
     retired.then((notes) => { if (notes.length) { retired = Promise.resolve([]); say(`${notes.join(' ')} Do it on the Model page in ${PANEL}.`, 'concerned'); } });
     ui({ kind: 'sound', on: config.sound });
-    ui({ kind: 'output_override', on: !!(MAC && config.outputDevice) });
+    ui({ kind: 'output_override', on: !!(AUDIO_PICKER && config.outputDevice) });
     ui({ kind: 'size', size: sizeNow() });
     ui({ kind: 'look', look: config.look ?? 'classic' });
     if (config.onboarded) ui({ kind: 'greet' });

@@ -217,6 +217,42 @@ pub fn devices() -> serde_json::Value {
     serde_json::json!({ "type": "devices", "unsupported": true })
 }
 
+/// The microphone the user picked (its uid from device_lists), "" = whatever the system default is.
+static INPUT_DEVICE: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+pub fn set_input_device(uid: &str) {
+    *INPUT_DEVICE.lock().unwrap() = uid.to_owned();
+}
+
+/// Every microphone and speaker, in the shape the macOS helper sends: { type: "audio_devices", inputs, outputs },
+/// each { uid, name, builtin, default }. The uid is the system's own id for the device, so two devices with the same
+/// name (a Bluetooth headset's call and music profiles) stay apart, and it survives restarts.
+#[cfg(any(windows, target_os = "linux"))]
+pub fn device_lists() -> serde_json::Value {
+    use cpal::traits::{DeviceTrait, HostTrait};
+    use serde_json::json;
+    let host = cpal::default_host();
+    let id = |d: &cpal::Device| d.id().ok().map(|i| i.to_string());
+    let list = |devs: Option<Vec<cpal::Device>>, default: Option<cpal::Device>| {
+        let default = default.as_ref().and_then(id);
+        devs.unwrap_or_default().iter().filter_map(|d| {
+            let uid = id(d)?;
+            let name = d.description().ok()?.name().to_owned();
+            Some(json!({ "uid": uid, "name": name, "builtin": false, "default": default.as_deref() == Some(uid.as_str()) }))
+        }).collect::<Vec<_>>()
+    };
+    json!({
+        "type": "audio_devices",
+        "inputs": list(host.input_devices().ok().map(|i| i.collect()), host.default_input_device()),
+        "outputs": list(host.output_devices().ok().map(|i| i.collect()), host.default_output_device()),
+    })
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
+pub fn device_lists() -> serde_json::Value {
+    serde_json::json!({ "type": "audio_devices", "inputs": [], "outputs": [] })
+}
+
 #[cfg(not(any(windows, target_os = "linux")))]
 pub fn has_input() -> bool {
     false
@@ -249,7 +285,19 @@ pub fn open_mic(mut sink: Sink) -> Result<Source, MicError> {
         )
     }
 
-    let dev = cpal::default_host().default_input_device().ok_or_else(|| MicError::new("missing", "no default input device"))?;
+    // The mic the user picked, if it's plugged in; otherwise (or when none was picked) the system default.
+    let want = INPUT_DEVICE.lock().unwrap().clone();
+    let host = cpal::default_host();
+    let picked = if want.is_empty() {
+        None
+    } else {
+        let found = host.input_devices().ok().and_then(|mut l| l.find(|d| d.id().ok().map(|i| i.to_string()).as_deref() == Some(want.as_str())));
+        if found.is_none() {
+            log("the chosen microphone isn't there: using the system default");
+        }
+        found
+    };
+    let dev = picked.or_else(|| host.default_input_device()).ok_or_else(|| MicError::new("missing", "no default input device"))?;
     let supported = dev.default_input_config().map_err(open_failed)?;
     sink.start(supported.sample_rate(), supported.channels() as usize);
     let err_tx = sink.tx.clone();

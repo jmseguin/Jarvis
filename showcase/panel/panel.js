@@ -705,25 +705,26 @@
             builtin: 'Always uses the built-in Mac mic for wake-word listening.',
             bluetooth: 'Always uses the default Bluetooth headset mic for wake-word listening (keeps headset in call mode).',
           })) : null) : null,
-      v && v.mac ? (() => {
+      v && v.audioPicker ? (() => {
+        const sys = v.mac ? 'macOS' : 'Windows';
         const inputs = v.audioDevices?.inputs ?? [];
         const outputs = v.audioDevices?.outputs ?? [];
         const curIn = v.inputDevice || '';
         const curOut = v.outputDevice || '';
         const hasSavedIn = !curIn || inputs.some((d) => d.uid === curIn);
         const hasSavedOut = !curOut || outputs.some((d) => d.uid === curOut);
-        const devLabel = (d) => `${d.name}${d.builtin ? ' (Built-in)' : ''}${d.default ? ' · macOS default' : ''}`;
+        const devLabel = (d) => `${d.name}${d.builtin ? ' (Built-in)' : ''}${d.default ? ` · ${sys} default` : ''}`;
         return group('Audio devices', 'Lock AI Assistant to a specific mic and speaker so plugging in headphones or a projector does not switch them.',
           link('Refresh', () => act('refreshdevices'), { k: 'refreshdevices', aria: 'Refresh audio devices' }),
           el('div', { className: 'setting' },
-            el('span', {}, 'Microphone', el('small', { textContent: curIn ? 'Locked to selected input device' : 'Follows macOS system default input' })),
+            el('span', {}, 'Microphone', el('small', { textContent: curIn ? 'Locked to selected input device' : `Follows the ${sys} default input` })),
             el('span', { className: 'px field select' },
               el('select', { 'aria-label': 'Microphone override', 'data-k': 'inputdev', on: { change: (e) => act(`inputdev:${e.target.value}`) } },
                 el('option', { value: '', textContent: 'System default', selected: curIn === '' }),
                 !hasSavedIn ? el('option', { value: curIn, textContent: `Saved device (disconnected)`, selected: true }) : null,
                 inputs.map((d) => el('option', { value: d.uid, textContent: devLabel(d), selected: d.uid === curIn }))))),
           el('div', { className: 'setting' },
-            el('span', {}, 'Speaker', el('small', { textContent: curOut ? 'Locked to selected output device' : 'Follows macOS system default output' })),
+            el('span', {}, 'Speaker', el('small', { textContent: curOut ? 'Locked to selected output device' : `Follows the ${sys} default output` })),
             el('span', { className: 'px field select' },
               el('select', { 'aria-label': 'Speaker override', 'data-k': 'outputdev', on: { change: (e) => act(`outputdev:${e.target.value}`) } },
                 el('option', { value: '', textContent: 'System default', selected: curOut === '' }),

@@ -18,6 +18,7 @@
 mod audio;
 mod ink;
 mod keys;
+mod speaker;
 
 use audio::{MicError, Sink, Source};
 use parakeet_rs::{ExecutionConfig, ParakeetTDT, Transcriber};
@@ -548,6 +549,24 @@ impl Voice {
                     let mods: Vec<String> = msg.get("mods").and_then(Value::as_array).map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).unwrap_or_default();
                     self.set_chord(&mods);
                 }
+                // The mic and speaker pickers (the twin of the macOS helper's commands of the same names).
+                Some("list_devices") => emit(audio::device_lists()),
+                Some("input_device") => {
+                    let uid = msg.get("uid").and_then(Value::as_str).unwrap_or("");
+                    audio::set_input_device(uid);
+                    log(&format!("input device: {}", if uid.is_empty() { "default" } else { uid }));
+                }
+                Some("output_device") => {
+                    let uid = msg.get("uid").and_then(Value::as_str).unwrap_or("");
+                    speaker::set_device(uid);
+                    log(&format!("output device: {}", if uid.is_empty() { "default" } else { uid }));
+                }
+                Some("speak_pcm") => speaker::play(
+                    msg.get("id").and_then(Value::as_str).unwrap_or(""),
+                    msg.get("pcm").and_then(Value::as_str).unwrap_or(""),
+                    msg.get("rate").and_then(Value::as_f64).unwrap_or(44100.0),
+                ),
+                Some("speak_stop") => speaker::stop(),
                 // Muting the speakers while listening is macOS-only for now.
                 _ => {}
             },
